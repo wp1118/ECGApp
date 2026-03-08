@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">心电图绘制 - woP</string>
+    <string name="stage_p">P波</string>
+    <string name="stage_pr">PR间期</string>
+    <string name="stage_qrs">QRS波群</string>
+    <string name="stage_st">ST段</string>
+    <string name="stage_t">T波</string>
+    <string name="error_title">不正常</string>
+    <string name="success_title">恭喜</string>
+    <string name="copyright">© 2025 woP All Rights Reserved</string>
+</resources>

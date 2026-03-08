@@ -3,6 +3,7 @@ plugins {
 }
 
 android {
+    namespace 'com.ecg.drawer'
     compileSdkVersion 33
     defaultConfig {
         applicationId "com.ecg.drawer"

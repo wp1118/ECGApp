@@ -250,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawLine(x, 0, x, height, gridPaint);
             }
             for (int y = 0; y < height; y += (int)smallGridSize) {
-                canvas.drawLine(0, y, width, y, gridGridSize);
+                canvas.drawLine(0, y, width, y, gridPaint);
             }
             
             Paint bigGridPaint = new Paint();

@@ -7,7 +7,9 @@ import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStage;
     private Button btnReset;
     private Button btnGuide;
+    private Button btnContact;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,6 +32,7 @@ public class MainActivity extends AppCompatActivity {
         tvStage = findViewById(R.id.tvStage);
         btnReset = findViewById(R.id.btnReset);
         btnGuide = findViewById(R.id.btnGuide);
+        btnContact = findViewById(R.id.btnContact);
 
         LinearLayout container = findViewById(R.id.ecgContainer);
         ecgView = new ECGView(this);
@@ -36,6 +40,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnReset.setOnClickListener(v -> ecgView.reset());
         btnGuide.setOnClickListener(v -> showGuide());
+        btnContact.setOnClickListener(v -> showContactDialog());
     }
 
     private void showGuide() {
@@ -43,6 +48,41 @@ public class MainActivity extends AppCompatActivity {
             .setTitle("心电图标准详解")
             .setMessage(getGuideText())
             .setPositiveButton("确定", null)
+            .show();
+    }
+
+    private void showContactDialog() {
+        // 创建滚动视图
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(50, 50, 50, 50);
+        
+        // 添加文字说明
+        TextView textView = new TextView(this);
+        textView.setText(getContactText());
+        textView.setTextSize(16);
+        textView.setLineSpacing(1.5f, 1.5f);
+        textView.setPadding(0, 0, 0, 30);
+        layout.addView(textView);
+        
+        // 添加二维码图片
+        ImageView qrImage = new ImageView(this);
+        qrImage.setImageResource(R.drawable.donation_qr);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            800
+        );
+        qrImage.setLayoutParams(params);
+        qrImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        layout.addView(qrImage);
+        
+        scrollView.addView(layout);
+        
+        new AlertDialog.Builder(this)
+            .setTitle("联系我们")
+            .setView(scrollView)
+            .setPositiveButton("关闭", null)
             .show();
     }
 
@@ -69,6 +109,14 @@ public class MainActivity extends AppCompatActivity {
                "© 2025 woP All Rights Reserved";
     }
 
+    private String getContactText() {
+        return "本软件乃捐赠版（Donationware），版权归Sean & Dean所有，专为医林同道、杏林学子备之。\n\n" +
+               "若君用得顺手，愿赏几文润笔，助我等勉力改进，则感激涕零，叩首以谢！\n\n" +
+               "赏银随意，不拘多寡，长按下方玄机之码，微信支付宝皆可通也。\n\n" +
+               "如有高见或疑问，欢迎传书至：wangdgj@qq.com\n\n" +
+               "多谢诸位！";
+    }
+
     public void updateStatus(String status) {
         tvStatus.setText(status);
     }
@@ -91,8 +139,10 @@ public class MainActivity extends AppCompatActivity {
         private Paint ecgPaint;
         private Paint activePaint;
         private Paint textPaint;
+        private Paint startPointPaint;
         
-        private float smallGridSize = 20f;
+        // 坐标纸放大5倍：20f -> 100f
+        private float smallGridSize = 100f;
         private float bigGridSize = smallGridSize * 5;
         
         private Path drawnPath;
@@ -155,16 +205,30 @@ public class MainActivity extends AppCompatActivity {
             textPaint.setColor(Color.BLACK);
             textPaint.setTextSize(30);
 
+            // P波起始点标记画笔
+            startPointPaint = new Paint();
+            startPointPaint.setColor(Color.GREEN);
+            startPointPaint.setStrokeWidth(5);
+            startPointPaint.setStyle(Paint.Style.FILL);
+            
             drawnPath = new Path();
             currentPathPoints = new ArrayList<>();
-            baselineY = 400;
+            // 基线将在 onSizeChanged 中设置到屏幕中下1/3处
             updateStage(stageNames[0]);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            // 设置基线到屏幕中下1/3处
+            baselineY = h * 2f / 3f;
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             drawGrid(canvas);
+            drawPWaveStartMarker(canvas);
             canvas.drawLine(0, baselineY, getWidth(), baselineY, ecgPaint);
             canvas.drawPath(drawnPath, activePaint);
             drawStageHint(canvas);
@@ -191,6 +255,24 @@ public class MainActivity extends AppCompatActivity {
             for (int y = 0; y < height; y += (int)bigGridSize) {
                 canvas.drawLine(0, y, width, y, bigGridPaint);
             }
+        }
+
+        // 绘制P波起始点标志
+        private void drawPWaveStartMarker(Canvas canvas) {
+            float markerX = smallGridSize; // 最左端留一格空白
+            float markerY = baselineY;
+            
+            // 绘制绿色十字标记
+            float markerSize = smallGridSize * 0.8f;
+            canvas.drawLine(markerX - markerSize/2, markerY, markerX + markerSize/2, markerY, startPointPaint);
+            canvas.drawLine(markerX, markerY - markerSize/2, markerX, markerY + markerSize/2, startPointPaint);
+            
+            // 绘制文字标注
+            Paint markerTextPaint = new Paint();
+            markerTextPaint.setColor(Color.GREEN);
+            markerTextPaint.setTextSize(35);
+            markerTextPaint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("P波起点", markerX, markerY + markerSize + 40, markerTextPaint);
         }
 
         private void drawStageHint(Canvas canvas) {
@@ -236,8 +318,12 @@ public class MainActivity extends AppCompatActivity {
                     currentPathPoints.clear();
                     if (currentStage == 0) {
                         drawnPath.reset();
-                        startX = x;
-                        startPoint = new PointF(x, y);
+                        // P波从标记位置开始
+                        startX = smallGridSize;
+                        drawnPath.moveTo(startX, baselineY);
+                        startPoint = new PointF(startX, baselineY);
+                        lastX = startX;
+                        lastY = baselineY;
                     } else {
                         if (Math.abs(x - lastX) > 100) {
                             showError("请从上一阶段的终点继续绘制！");

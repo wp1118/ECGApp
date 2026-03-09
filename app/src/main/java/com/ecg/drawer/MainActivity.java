@@ -18,11 +18,12 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
     private ECGView ecgView;
-    private TextView tvStatus;
     private TextView tvStage;
     private Button btnReset;
     private Button btnGuide;
     private Button btnContact;
+    private Button btnEvaluate;
+    private TextView tvCopyright;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,11 +31,12 @@ public class MainActivity extends AppCompatActivity {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         setContentView(R.layout.activity_main);
 
-        tvStatus = findViewById(R.id.tvStatus);
         tvStage = findViewById(R.id.tvStage);
         btnReset = findViewById(R.id.btnReset);
         btnGuide = findViewById(R.id.btnGuide);
         btnContact = findViewById(R.id.btnContact);
+        btnEvaluate = findViewById(R.id.btnEvaluate);
+        tvCopyright = findViewById(R.id.tvCopyright);
 
         LinearLayout container = findViewById(R.id.ecgContainer);
         ecgView = new ECGView(this);
@@ -43,6 +45,10 @@ public class MainActivity extends AppCompatActivity {
         btnReset.setOnClickListener(v -> ecgView.reset());
         btnGuide.setOnClickListener(v -> showGuide());
         btnContact.setOnClickListener(v -> showContactDialog());
+        btnEvaluate.setOnClickListener(v -> ecgView.showCurrentEvaluation());
+        
+        // 版权文字点击也评价
+        tvCopyright.setOnClickListener(v -> ecgView.showCurrentEvaluation());
     }
 
     private void showGuide() {
@@ -101,20 +107,15 @@ public class MainActivity extends AppCompatActivity {
                "多谢诸位！";
     }
 
-    public void updateStatus(String status) {
-        tvStatus.setText(status);
-    }
-
     public void updateStage(String stage) {
         tvStage.setText("当前：" + stage);
     }
 
-    public void showFinalResult(boolean success, String message) {
+    public void showEvaluationResult(boolean success, String message) {
         new AlertDialog.Builder(this)
-            .setTitle(success ? "完成" : "有异常")
+            .setTitle(success ? "评价结果" : "有异常")
             .setMessage(message)
-            .setPositiveButton("重绘", (dialog, which) -> ecgView.reset())
-            .setCancelable(false)
+            .setPositiveButton("确定", null)
             .show();
     }
 
@@ -125,8 +126,8 @@ public class MainActivity extends AppCompatActivity {
         private Paint textPaint;
         private Paint startPointPaint;
         
-        // 坐标纸扩大一倍：50f -> 100f
-        private float smallGridSize = 100f;
+        // 坐标格缩小60%：100f -> 40f (原100px的40%)
+        private float smallGridSize = 40f;
         private float bigGridSize = smallGridSize * 5;
         
         private Path drawnPath;
@@ -164,12 +165,14 @@ public class MainActivity extends AppCompatActivity {
         private float secondsPerSmallGrid = 0.04f;
         private float mvPerSmallGrid = 0.1f;
         
-        // P波容错：允许起始点向下一些（0.5格以内）
+        // P波容错
         private boolean pWaveStarted = false;
         private boolean pWaveHasGoneUp = false;
         
-        // 记录各阶段的错误，最后统一显示
+        // 记录各阶段的错误
         private List<String> stageErrors;
+        // 记录各阶段是否已完成
+        private boolean[] stageCompleted;
 
         public ECGView(Context context) {
             super(context);
@@ -193,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
 
             textPaint = new Paint();
             textPaint.setColor(Color.BLACK);
-            textPaint.setTextSize(18); // 文字缩小
+            textPaint.setTextSize(16);
 
             startPointPaint = new Paint();
             startPointPaint.setColor(Color.GREEN);
@@ -203,6 +206,7 @@ public class MainActivity extends AppCompatActivity {
             drawnPath = new Path();
             currentPathPoints = new ArrayList<>();
             stageErrors = new ArrayList<>();
+            stageCompleted = new boolean[5];
             updateStage(stageNames[0]);
         }
 
@@ -255,19 +259,19 @@ public class MainActivity extends AppCompatActivity {
             
             Paint markerTextPaint = new Paint();
             markerTextPaint.setColor(Color.GREEN);
-            markerTextPaint.setTextSize(16);
+            markerTextPaint.setTextSize(14);
             markerTextPaint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("P起点", markerX, markerY + markerSize + 25, markerTextPaint);
+            canvas.drawText("P起点", markerX, markerY + markerSize + 20, markerTextPaint);
         }
 
         private void drawStageHint(Canvas canvas) {
             String hint = "";
             switch (currentStage) {
                 case 0:
-                    hint = "【P波】<3格(300px)，<2.5格(250px)，向上，回基线自动结算";
+                    hint = "【P波】<3格(120px)，<2.5格(100px)，向上，回基线自动结算";
                     break;
                 case 1:
-                    hint = "【PR间期】水平，3-5格(300-500px)";
+                    hint = "【PR间期】水平，3-5格(120-200px)";
                     break;
                 case 2:
                     hint = "【QRS】Q<1格→R>5格→S，总<3格";
@@ -279,17 +283,17 @@ public class MainActivity extends AppCompatActivity {
                     hint = "【T波】向上，>R/10且<5格";
                     break;
             }
-            canvas.drawText(hint, 30, 50, textPaint);
+            canvas.drawText(hint, 30, 45, textPaint);
             
             // 显示已记录的异常
             if (!stageErrors.isEmpty()) {
                 Paint errorPaint = new Paint();
                 errorPaint.setColor(Color.RED);
-                errorPaint.setTextSize(14);
-                int y = getHeight() - 40;
+                errorPaint.setTextSize(12);
+                int y = getHeight() - 30;
                 for (int i = stageErrors.size() - 1; i >= 0 && i >= stageErrors.size() - 3; i--) {
                     canvas.drawText("⚠ " + stageErrors.get(i), 30, y, errorPaint);
-                    y -= 20;
+                    y -= 16;
                 }
             }
         }
@@ -341,6 +345,7 @@ public class MainActivity extends AppCompatActivity {
                     
                     // 验证当前阶段（记录错误但不阻止）
                     validateCurrentStage();
+                    stageCompleted[currentStage] = true;
                     
                     lastX = x;
                     lastY = y;
@@ -377,6 +382,7 @@ public class MainActivity extends AppCompatActivity {
                     endPoint = new PointF(x, baselineY);
                     currentPathPoints.add(new PointF(x, baselineY));
                     validateCurrentStage();
+                    stageCompleted[0] = true;
                     
                     lastX = x;
                     lastY = baselineY;
@@ -420,7 +426,6 @@ public class MainActivity extends AppCompatActivity {
                     if (pWaveAmp > P_MAX_AMP) {
                         stageErrors.add("P波幅度超标：" + String.format("%.2f", pWaveAmp) + "mv (<0.25mv)");
                     }
-                    // 容错：不要求必须向上，但记录
                     if (maxHeight < smallGridSize * 0.5f) {
                         stageErrors.add("P波幅度可能不足");
                     }
@@ -486,9 +491,41 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        // 显示当前评价
+        public void showCurrentEvaluation() {
+            StringBuilder sb = new StringBuilder();
+            
+            // 显示已完成阶段的评价
+            for (int i = 0; i < stageNames.length; i++) {
+                if (stageCompleted[i]) {
+                    sb.append("【" + stageNames[i] + "】");
+                    boolean hasError = false;
+                    for (String err : stageErrors) {
+                        if (err.startsWith(stageNames[i])) {
+                            sb.append(" ✗\n  " + err.substring(stageNames[i].length() + 1) + "\n");
+                            hasError = true;
+                        }
+                    }
+                    if (!hasError) {
+                        sb.append(" ✓ 正常\n");
+                    }
+                } else if (i == currentStage) {
+                    sb.append("【" + stageNames[i] + "】绘制中...\n");
+                } else {
+                    sb.append("【" + stageNames[i] + "】未开始\n");
+                }
+            }
+            
+            if (stageErrors.isEmpty() && currentStage >= stageNames.length) {
+                post(() -> MainActivity.this.showEvaluationResult(true, "所有波形参数均在正常范围内！\n\n" + sb.toString()));
+            } else {
+                post(() -> MainActivity.this.showEvaluationResult(false, sb.toString()));
+            }
+        }
+
         private void showFinalResult() {
             if (stageErrors.isEmpty()) {
-                post(() -> MainActivity.this.showFinalResult(true, 
+                post(() -> MainActivity.this.showEvaluationResult(true, 
                     "所有波形参数均在正常范围内！\n\n" +
                     "• P波：时限<0.12s，幅度<0.25mv\n" +
                     "• PR间期：0.12-0.20s\n" +
@@ -501,7 +538,7 @@ public class MainActivity extends AppCompatActivity {
                     sb.append((i+1) + ". " + stageErrors.get(i) + "\n");
                 }
                 sb.append("\n建议对照标准重新练习。");
-                post(() -> MainActivity.this.showFinalResult(false, sb.toString()));
+                post(() -> MainActivity.this.showEvaluationResult(false, sb.toString()));
             }
         }
 
@@ -566,6 +603,9 @@ public class MainActivity extends AppCompatActivity {
             drawnPath.reset();
             currentPathPoints.clear();
             stageErrors.clear();
+            for (int i = 0; i < stageCompleted.length; i++) {
+                stageCompleted[i] = false;
+            }
             currentStage = 0;
             lastX = 0;
             lastY = 0;
@@ -577,7 +617,6 @@ public class MainActivity extends AppCompatActivity {
             pWaveStarted = false;
             pWaveHasGoneUp = false;
             updateStage(stageNames[0]);
-            updateStatus("就绪");
             invalidate();
         }
     }

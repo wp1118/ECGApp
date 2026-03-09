@@ -126,8 +126,8 @@ public class MainActivity extends AppCompatActivity {
         private Paint textPaint;
         private Paint startPointPaint;
         
-        // 坐标格缩小60%：100f -> 40f (原100px的40%)
-        private float smallGridSize = 40f;
+        // 坐标格缩小到70%：100f * 0.7 = 70f
+        private float smallGridSize = 70f;
         private float bigGridSize = smallGridSize * 5;
         
         private Path drawnPath;
@@ -259,19 +259,19 @@ public class MainActivity extends AppCompatActivity {
             
             Paint markerTextPaint = new Paint();
             markerTextPaint.setColor(Color.GREEN);
-            markerTextPaint.setTextSize(14);
+            markerTextPaint.setTextSize(16);
             markerTextPaint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("P起点", markerX, markerY + markerSize + 20, markerTextPaint);
+            canvas.drawText("P起点", markerX, markerY + markerSize + 25, markerTextPaint);
         }
 
         private void drawStageHint(Canvas canvas) {
             String hint = "";
             switch (currentStage) {
                 case 0:
-                    hint = "【P波】<3格(120px)，<2.5格(100px)，向上，回基线自动结算";
+                    hint = "【P波】<3格(210px)，<2.5格(175px)，向上，回基线自动结算";
                     break;
                 case 1:
-                    hint = "【PR间期】水平，3-5格(120-200px)";
+                    hint = "【PR间期】水平，3-5格(210-350px)";
                     break;
                 case 2:
                     hint = "【QRS】Q<1格→R>5格→S，总<3格";
@@ -283,17 +283,17 @@ public class MainActivity extends AppCompatActivity {
                     hint = "【T波】向上，>R/10且<5格";
                     break;
             }
-            canvas.drawText(hint, 30, 45, textPaint);
+            canvas.drawText(hint, 30, 50, textPaint);
             
             // 显示已记录的异常
             if (!stageErrors.isEmpty()) {
                 Paint errorPaint = new Paint();
                 errorPaint.setColor(Color.RED);
-                errorPaint.setTextSize(12);
-                int y = getHeight() - 30;
+                errorPaint.setTextSize(13);
+                int y = getHeight() - 35;
                 for (int i = stageErrors.size() - 1; i >= 0 && i >= stageErrors.size() - 3; i--) {
                     canvas.drawText("⚠ " + stageErrors.get(i), 30, y, errorPaint);
-                    y -= 16;
+                    y -= 18;
                 }
             }
         }

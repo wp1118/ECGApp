@@ -90,11 +90,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String getGuideText() {
-        return "【P波】<0.12s(3格)，<0.25mv(2.5格)，向上圆钝\n\n" +
-               "【PR间期】0.12-0.20s(3-5格)，水平于基线\n\n" +
-               "【QRS】Q<0.04s(1格)，Q<1/4R，R>0.5mv，总<0.12s\n\n" +
-               "【ST段】回到基线，压低<0.05mv，无弓背上抬\n\n" +
-               "【T波】向上圆钝，>R/10且<0.5mv";
+        return "【P波】时限<0.12s，振幅<0.25mV，向上圆钝\n\n" +
+               "【PR间期】0.12-0.20s，P波终点至QRS起点\n\n" +
+               "【QRS】Q<0.04s，Q<1/4R，R>0.5mV，时限<0.12s\n\n" +
+               "【ST段】J点后测量，压低>0.05mV为异常，区分水平型/上斜型\n\n" +
+               "【T波】振幅>0.2mV且>R/10，<0.5mV，向上圆钝";
     }
 
     private String getContactText() {
@@ -123,12 +123,14 @@ public class MainActivity extends AppCompatActivity {
         private Paint activePaint;
         private Paint textPaint;
         private Paint startPointPaint;
+        private Paint markerPaint;
         
         private float smallGridSize = 60f;
         private float bigGridSize = smallGridSize * 5;
         
         private Path drawnPath;
         private List<PointF> currentPathPoints;
+        private List<PointF> allPathPoints;
         private float lastX = 0;
         private float lastY = 0;
         private float baselineY = 0;
@@ -139,11 +141,22 @@ public class MainActivity extends AppCompatActivity {
         private PointF startPoint;
         private PointF endPoint;
         
+        // 波形关键点
+        private PointF pWaveEnd;
+        private PointF qrsStart;
+        private PointF qrsEnd;
+        private PointF jPoint;
+        private PointF tWaveStart;
+        private PointF tWaveEnd;
+        
         private float pWaveAmp = 0;
         private float qWaveAmp = 0;
         private float rWaveAmp = 0;
         private float sWaveAmp = 0;
         private float tWaveAmp = 0;
+        private float prInterval = 0;
+        private float qrsDuration = 0;
+        private float qtInterval = 0;
         
         // 标准值
         private final float P_MAX_TIME = 0.12f;
@@ -154,8 +167,8 @@ public class MainActivity extends AppCompatActivity {
         private final float Q_MAX_RATIO = 0.25f;
         private final float QRS_MAX_TIME = 0.12f;
         private final float R_MIN_AMP = 0.5f;
-        private final float ST_ELEVATION_MAX = 0.1f;
-        private final float ST_DEPRESSION_MAX = 0.05f;
+        private final float ST_DEPRESSION_THRESHOLD = 0.05f;
+        private final float T_MIN_AMP = 0.2f;
         private final float T_MAX_AMP = 0.5f;
         private final float T_MIN_RATIO = 0.1f;
         
@@ -166,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
         private boolean pWaveHasGoneUp = false;
         
         private List<String> stageErrors;
+        private List<String> detailedAnalysis;
         private boolean[] stageCompleted;
 
         public ECGView(Context context) {
@@ -197,9 +211,16 @@ public class MainActivity extends AppCompatActivity {
             startPointPaint.setStrokeWidth(5);
             startPointPaint.setStyle(Paint.Style.FILL);
             
+            markerPaint = new Paint();
+            markerPaint.setColor(Color.BLUE);
+            markerPaint.setStrokeWidth(4);
+            markerPaint.setStyle(Paint.Style.STROKE);
+            
             drawnPath = new Path();
             currentPathPoints = new ArrayList<>();
+            allPathPoints = new ArrayList<>();
             stageErrors = new ArrayList<>();
+            detailedAnalysis = new ArrayList<>();
             stageCompleted = new boolean[5];
             updateStage(stageNames[0]);
         }
@@ -215,6 +236,7 @@ public class MainActivity extends AppCompatActivity {
             super.onDraw(canvas);
             drawGrid(canvas);
             drawPWaveStartMarker(canvas);
+            drawKeyPoints(canvas);
             canvas.drawLine(0, baselineY, getWidth(), baselineY, ecgPaint);
             canvas.drawPath(drawnPath, activePaint);
             drawStageHint(canvas);
@@ -228,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawLine(x, 0, x, height, gridPaint);
             }
             for (int y = 0; y < height; y += (int)smallGridSize) {
-                canvas.drawLine(0, y, width, y, gridPaint);
+                canvas.drawLine(0, y, width, y, gridGridSize);
             }
             
             Paint bigGridPaint = new Paint();
@@ -258,23 +280,33 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawText("P起点", markerX, markerY + markerSize + 25, markerTextPaint);
         }
 
+        private void drawKeyPoints(Canvas canvas) {
+            // 绘制检测到的关键点标记
+            if (pWaveEnd != null) {
+                canvas.drawCircle(pWaveEnd.x, pWaveEnd.y, 8, markerPaint);
+            }
+            if (jPoint != null) {
+                canvas.drawCircle(jPoint.x, jPoint.y, 8, markerPaint);
+            }
+        }
+
         private void drawStageHint(Canvas canvas) {
             String hint = "";
             switch (currentStage) {
                 case 0:
-                    hint = "【P波】<3格(180px)，<2.5格(150px)，向上圆钝，回基线结算";
+                    hint = "【P波】时限<0.12s，振幅<0.25mV，向上圆钝";
                     break;
                 case 1:
-                    hint = "【PR间期】水平于基线，3-5格(180-300px)";
+                    hint = "【PR段】P波终点→QRS起点，水平于基线";
                     break;
                 case 2:
-                    hint = "【QRS】Q<1格，R>5格，Q<1/4R，总<3格";
+                    hint = "【QRS】精确检测起点/终点，Q<0.04s，R>0.5mV";
                     break;
                 case 3:
-                    hint = "【ST段】回到基线，压低<0.5格，无弓背上抬";
+                    hint = "【ST段】J点后测量，检测0.05mV以上压低";
                     break;
                 case 4:
-                    hint = "【T波】向上圆钝，>R/10且<5格";
+                    hint = "【T波】检测低平/倒置，振幅>0.2mV且>R/10";
                     break;
             }
             canvas.drawText(hint, 30, 50, textPaint);
@@ -304,24 +336,24 @@ public class MainActivity extends AppCompatActivity {
                     
                     if (currentStage == 0) {
                         drawnPath.reset();
+                        allPathPoints.clear();
                         startX = smallGridSize * 2;
                         drawnPath.moveTo(startX, baselineY);
                         startPoint = new PointF(startX, baselineY);
                         lastX = startX;
                         lastY = baselineY;
                     } else {
-                        if (Math.abs(x - lastX) > 50) {
-                            stageErrors.add(stageNames[currentStage] + ": 未从上一阶段终点连接");
-                        }
                         drawnPath.moveTo(lastX, lastY);
                         startPoint = new PointF(lastX, lastY);
                     }
                     currentPathPoints.add(new PointF(x, y));
+                    allPathPoints.add(new PointF(x, y));
                     return true;
 
                 case MotionEvent.ACTION_MOVE:
                     drawnPath.lineTo(x, y);
                     currentPathPoints.add(new PointF(x, y));
+                    allPathPoints.add(new PointF(x, y));
                     
                     if (currentStage == 0) {
                         handlePWaveDrawing(x, y);
@@ -333,8 +365,10 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_UP:
                     endPoint = new PointF(x, y);
                     currentPathPoints.add(new PointF(x, y));
+                    allPathPoints.add(new PointF(x, y));
                     
-                    validateCurrentStage();
+                    // 执行高级波形分析
+                    analyzeWaveformAdvanced();
                     stageCompleted[currentStage] = true;
                     
                     lastX = x;
@@ -365,9 +399,12 @@ public class MainActivity extends AppCompatActivity {
                 }
                 
                 if (pWaveHasGoneUp && y >= baselineY - smallGridSize * 0.3f) {
-                    endPoint = new PointF(x, baselineY);
-                    currentPathPoints.add(new PointF(x, baselineY));
-                    validateCurrentStage();
+                    // P波终点检测 - 回到基线
+                    pWaveEnd = new PointF(x, baselineY);
+                    endPoint = pWaveEnd;
+                    currentPathPoints.add(pWaveEnd);
+                    
+                    analyzeWaveformAdvanced();
                     stageCompleted[0] = true;
                     
                     lastX = x;
@@ -386,7 +423,31 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        private void validateCurrentStage() {
+        // 高级波形分析算法
+        private void analyzeWaveformAdvanced() {
+            if (currentPathPoints.size() < 2) return;
+            
+            switch (currentStage) {
+                case 0:
+                    analyzePWaveAdvanced();
+                    break;
+                case 1:
+                    analyzePRSegmentAdvanced();
+                    break;
+                case 2:
+                    analyzeQRSAdvanced();
+                    break;
+                case 3:
+                    analyzeSTSegmentAdvanced();
+                    break;
+                case 4:
+                    analyzeTWaveAdvanced();
+                    break;
+            }
+        }
+
+        // P波高级分析 - 精确检测形态
+        private void analyzePWaveAdvanced() {
             float width = Math.abs(endPoint.x - startPoint.x);
             float maxHeight = 0;
             float minHeight = 0;
@@ -397,257 +458,137 @@ public class MainActivity extends AppCompatActivity {
                 if (h < minHeight) minHeight = h;
             }
             
-            float smallGridsX = width / smallGridSize;
-            float smallGridsYUp = maxHeight / smallGridSize;
-            float smallGridsYDown = Math.abs(minHeight) / smallGridSize;
+            float pTime = (width / smallGridSize) * secondsPerSmallGrid;
+            pWaveAmp = (maxHeight / smallGridSize) * mvPerSmallGrid;
             
-            switch (currentStage) {
-                case 0: // P波 - 增强形态检测
-                    float pTime = smallGridsX * secondsPerSmallGrid;
-                    pWaveAmp = smallGridsYUp * mvPerSmallGrid;
-                    
-                    // 时间检测
-                    if (pTime > P_MAX_TIME + 0.01f) {
-                        stageErrors.add("P波时间过长：" + String.format("%.3f", pTime) + "s (应<0.12s)");
-                    } else if (pTime > P_MAX_TIME) {
-                        stageErrors.add("P波时间略超：" + String.format("%.3f", pTime) + "s (临界)");
-                    }
-                    
-                    // 幅度检测
-                    if (pWaveAmp > P_MAX_AMP + 0.05f) {
-                        stageErrors.add("P波幅度超标：" + String.format("%.3f", pWaveAmp) + "mv (应<0.25mv)");
-                    } else if (pWaveAmp > P_MAX_AMP) {
-                        stageErrors.add("P波幅度略超：" + String.format("%.3f", pWaveAmp) + "mv (临界)");
-                    }
-                    
-                    // 形态检测 - 必须向上
-                    if (maxHeight < smallGridSize * 0.5f) {
-                        stageErrors.add("P波形态异常：幅度过小(应向上圆钝)");
-                    }
-                    
-                    // 检测P波是否向下（异常）
-                    if (minHeight > smallGridSize * 0.3f) {
-                        stageErrors.add("P波形态异常：出现明显负向波");
-                    }
-                    break;
-                    
-                case 1: // PR间期 - 增强水平检测
-                    float prTime = smallGridsX * secondsPerSmallGrid;
-                    float prDeviation = Math.abs(endPoint.y - baselineY);
-                    
-                    // 时间严格检测
-                    if (prTime < PR_MIN_TIME - 0.02f) {
-                        stageErrors.add("PR间期过短：" + String.format("%.3f", prTime) + "s (应≥0.12s)");
-                    } else if (prTime < PR_MIN_TIME) {
-                        stageErrors.add("PR间期偏短：" + String.format("%.3f", prTime) + "s (接近下限)");
-                    } else if (prTime > PR_MAX_TIME + 0.02f) {
-                        stageErrors.add("PR间期过长：" + String.format("%.3f", prTime) + "s (应≤0.20s)");
-                    } else if (prTime > PR_MAX_TIME) {
-                        stageErrors.add("PR间期偏长：" + String.format("%.3f", prTime) + "s (接近上限)");
-                    }
-                    
-                    // 水平度严格检测
-                    if (prDeviation > smallGridSize * 0.8f) {
-                        stageErrors.add("PR间期不水平：偏离基线" + String.format("%.1f", prDeviation/smallGridSize) + "格(应≤0.5格)");
-                    } else if (prDeviation > smallGridSize * 0.5f) {
-                        stageErrors.add("PR间期略偏斜：偏离基线" + String.format("%.1f", prDeviation/smallGridSize) + "格");
-                    }
-                    
-                    // 检测PR段是否有明显波动
-                    float prMaxDev = 0;
-                    for (PointF p : currentPathPoints) {
-                        float dev = Math.abs(p.y - baselineY);
-                        if (dev > prMaxDev) prMaxDev = dev;
-                    }
-                    if (prMaxDev > smallGridSize * 1.0f) {
-                        stageErrors.add("PR间期形态异常：有明显波动");
-                    }
-                    break;
-                    
-                case 2: // QRS - 增强形态和时间检测
-                    float qrsTime = smallGridsX * secondsPerSmallGrid;
-                    analyzeQRS();
-                    
-                    // 时间严格检测
-                    if (qrsTime > QRS_MAX_TIME + 0.01f) {
-                        stageErrors.add("QRS时间超标：" + String.format("%.3f", qrsTime) + "s (应<0.12s)");
-                    } else if (qrsTime > QRS_MAX_TIME) {
-                        stageErrors.add("QRS时间临界：" + String.format("%.3f", qrsTime) + "s (接近上限)");
-                    }
-                    
-                    // R波振幅检测
-                    if (rWaveAmp < R_MIN_AMP - 0.1f) {
-                        stageErrors.add("R波振幅不足：" + String.format("%.3f", rWaveAmp) + "mv (应≥0.5mv)");
-                    } else if (rWaveAmp < R_MIN_AMP) {
-                        stageErrors.add("R波振幅偏小：" + String.format("%.3f", rWaveAmp) + "mv (接近下限)");
-                    }
-                    
-                    // Q波检测
-                    float qTime = detectQTime();
-                    if (qTime > Q_MAX_TIME + 0.01f) {
-                        stageErrors.add("Q波时间过长：" + String.format("%.3f", qTime) + "s (应<0.04s)");
-                    } else if (qTime > Q_MAX_TIME) {
-                        stageErrors.add("Q波时间临界：" + String.format("%.3f", qTime) + "s");
-                    }
-                    
-                    // Q/R比值严格检测
-                    if (qWaveAmp > 0 && rWaveAmp > 0) {
-                        float qRratio = qWaveAmp / rWaveAmp;
-                        if (qRratio > Q_MAX_RATIO + 0.05f) {
-                            stageErrors.add("Q波幅度超标：Q/R=" + String.format("%.2f", qRratio) + "(应<0.25)");
-                        } else if (qRratio > Q_MAX_RATIO) {
-                            stageErrors.add("Q波幅度临界：Q/R=" + String.format("%.2f", qRratio) + "(接近上限)");
-                        }
-                    }
-                    
-                    // QRS结构检测
-                    if (rWaveAmp <= 0.1f) {
-                        stageErrors.add("QRS形态异常：未检测到明显R波");
-                    }
-                    break;
-                    
-                case 3: // ST段 - 增强形态检测
-                    analyzeSTSegment();
-                    
-                    // 弓背上抬检测
-                    boolean isElevated = maxHeight > smallGridSize * 0.3f;
-                    boolean isConvex = isConvexUpward();
-                    
-                    if (isElevated && isConvex) {
-                        stageErrors.add("ST段弓背上抬：急性心梗表现(严重异常)");
-                    } else if (isConvex && maxHeight > smallGridSize * 0.2f) {
-                        stageErrors.add("ST段形态可疑：轻度弓背改变");
-                    }
-                    
-                    // 抬高严格检测
-                    float stDev = smallGridsYUp * mvPerSmallGrid;
-                    if (stDev > ST_ELEVATION_MAX + 0.02f) {
-                        stageErrors.add("ST段抬高超标：" + String.format("%.3f", stDev) + "mv (应<0.1mv)");
-                    } else if (stDev > ST_ELEVATION_MAX) {
-                        stageErrors.add("ST段抬高临界：" + String.format("%.3f", stDev) + "mv");
-                    }
-                    
-                    // 压低严格检测
-                    float stDep = smallGridsYDown * mvPerSmallGrid;
-                    if (stDep > ST_DEPRESSION_MAX + 0.02f) {
-                        stageErrors.add("ST段压低超标：" + String.format("%.3f", stDep) + "mv (应<0.05mv)");
-                    } else if (stDep > ST_DEPRESSION_MAX) {
-                        stageErrors.add("ST段压低临界：" + String.format("%.3f", stDep) + "mv");
-                    }
-                    
-                    // ST段是否回到基线
-                    float stEndDev = Math.abs(endPoint.y - baselineY);
-                    if (stEndDev > smallGridSize * 0.5f) {
-                        stageErrors.add("ST段未回基线：终点偏离" + String.format("%.1f", stEndDev/smallGridSize) + "格");
-                    }
-                    break;
-                    
-                case 4: // T波 - 增强振幅和形态检测
-                    analyzeTWave();
-                    tWaveAmp = smallGridsYUp * mvPerSmallGrid;
-                    
-                    // 振幅上限严格检测
-                    if (tWaveAmp > T_MAX_AMP + 0.05f) {
-                        stageErrors.add("T波幅度超标：" + String.format("%.3f", tWaveAmp) + "mv (应<0.5mv)");
-                    } else if (tWaveAmp > T_MAX_AMP) {
-                        stageErrors.add("T波幅度临界：" + String.format("%.3f", tWaveAmp) + "mv (接近上限)");
-                    }
-                    
-                    // T/R比值严格检测
-                    if (rWaveAmp > 0) {
-                        float trRatio = tWaveAmp / rWaveAmp;
-                        if (trRatio < T_MIN_RATIO - 0.03f) {
-                            stageErrors.add("T波幅度不足：T/R=" + String.format("%.2f", trRatio) + "(应>0.1)");
-                        } else if (trRatio < T_MIN_RATIO) {
-                            stageErrors.add("T波幅度偏小：T/R=" + String.format("%.2f", trRatio) + "(接近下限)");
-                        }
-                    }
-                    
-                    // T波方向检测
-                    if (endPoint.y > baselineY - smallGridSize * 0.5f) {
-                        stageErrors.add("T波方向异常：应直立向上");
-                    }
-                    
-                    // T波形态检测（圆钝）
-                    if (!isTWaveRound()) {
-                        stageErrors.add("T波形态异常：应圆钝对称");
-                    }
-                    break;
+            detailedAnalysis.add("P波时限: " + String.format("%.3f", pTime) + "s");
+            detailedAnalysis.add("P波振幅: " + String.format("%.3f", pWaveAmp) + "mV");
+            
+            // 精确时间检测
+            if (pTime > P_MAX_TIME) {
+                stageErrors.add("P波时限超标: " + String.format("%.3f", pTime) + "s (应<0.12s)");
+            }
+            
+            // 精确振幅检测
+            if (pWaveAmp > P_MAX_AMP) {
+                stageErrors.add("P波振幅超标: " + String.format("%.3f", pWaveAmp) + "mV (应<0.25mV)");
+            }
+            
+            // 形态检测 - 必须向上圆钝
+            if (maxHeight < smallGridSize * 0.3f) {
+                stageErrors.add("P波形态异常: 振幅过小(应向上)");
+            }
+            
+            // 检测负向成分
+            if (minHeight > smallGridSize * 0.2f) {
+                stageErrors.add("P波形态异常: 存在明显负向波");
+            }
+            
+            // 记录P波终点用于PR间期计算
+            pWaveEnd = endPoint;
+        }
+
+        // PR段高级分析
+        private void analyzePRSegmentAdvanced() {
+            float width = Math.abs(endPoint.x - startPoint.x);
+            prInterval = (width / smallGridSize) * secondsPerSmallGrid;
+            
+            detailedAnalysis.add("PR间期: " + String.format("%.3f", prInterval) + "s");
+            
+            // 精确时间范围检测
+            if (prInterval < PR_MIN_TIME) {
+                stageErrors.add("PR间期过短: " + String.format("%.3f", prInterval) + "s (应≥0.12s)");
+            } else if (prInterval > PR_MAX_TIME) {
+                stageErrors.add("PR间期过长: " + String.format("%.3f", prInterval) + "s (应≤0.20s)");
+            }
+            
+            // 水平度检测 - 计算路径偏离基线的程度
+            double totalDeviation = 0;
+            double maxDeviation = 0;
+            for (PointF p : currentPathPoints) {
+                double dev = Math.abs(p.y - baselineY);
+                totalDeviation += dev;
+                if (dev > maxDeviation) maxDeviation = dev;
+            }
+            double avgDeviation = totalDeviation / currentPathPoints.size();
+            
+            detailedAnalysis.add("PR段平均偏离: " + String.format("%.2f", avgDeviation/smallGridSize) + "格");
+            
+            if (maxDeviation > smallGridSize * 0.8f) {
+                stageErrors.add("PR段不水平: 最大偏离" + String.format("%.1f", maxDeviation/smallGridSize) + "格");
+            } else if (avgDeviation > smallGridSize * 0.3f) {
+                stageErrors.add("PR段略偏斜: 平均偏离" + String.format("%.1f", avgDeviation/smallGridSize) + "格");
             }
         }
 
-        private boolean isTWaveRound() {
-            if (currentPathPoints.size() < 5) return true;
+        // QRS高级分析 - 精确边界检测
+        private void analyzeQRSAdvanced() {
+            // 检测QRS波群的精确起点和终点
+            detectQRSBoundaries();
             
-            // 检测T波是否对称圆钝
-            int peakIndex = 0;
-            float maxH = 0;
+            float width = Math.abs(endPoint.x - startPoint.x);
+            qrsDuration = (width / smallGridSize) * secondsPerSmallGrid;
+            
+            // 分析QRS各成分
+            analyzeQRSComponents();
+            
+            detailedAnalysis.add("QRS时限: " + String.format("%.3f", qrsDuration) + "s");
+            detailedAnalysis.add("R波振幅: " + String.format("%.3f", rWaveAmp) + "mV");
+            
+            // 时限检测
+            if (qrsDuration > QRS_MAX_TIME) {
+                stageErrors.add("QRS时限超标: " + String.format("%.3f", qrsDuration) + "s (应<0.12s)");
+            }
+            
+            // R波振幅
+            if (rWaveAmp < R_MIN_AMP) {
+                stageErrors.add("R波振幅不足: " + String.format("%.3f", rWaveAmp) + "mV (应≥0.5mV)");
+            }
+            
+            // Q波分析
+            if (qWaveAmp > 0) {
+                float qTime = detectQTimeAdvanced();
+                detailedAnalysis.add("Q波时限: " + String.format("%.3f", qTime) + "s");
+                
+                if (qTime > Q_MAX_TIME) {
+                    stageErrors.add("Q波时限超标: " + String.format("%.3f", qTime) + "s");
+                }
+                
+                if (rWaveAmp > 0) {
+                    float qRratio = qWaveAmp / rWaveAmp;
+                    if (qRratio > Q_MAX_RATIO) {
+                        stageErrors.add("Q波幅度超标: Q/R=" + String.format("%.2f", qRratio));
+                    }
+                }
+            }
+            
+            // 标记J点
+            jPoint = endPoint;
+        }
+
+        // 精确检测QRS边界
+        private void detectQRSBoundaries() {
+            // QRS起点 - 从基线开始的偏离点
             for (int i = 0; i < currentPathPoints.size(); i++) {
-                float h = baselineY - currentPathPoints.get(i).y;
-                if (h > maxH) {
-                    maxH = h;
-                    peakIndex = i;
+                PointF p = currentPathPoints.get(i);
+                if (Math.abs(p.y - baselineY) > smallGridSize * 0.2f) {
+                    qrsStart = p;
+                    break;
                 }
             }
             
-            // 检测上升和下降是否对称
-            int leftCount = peakIndex;
-            int rightCount = currentPathPoints.size() - peakIndex - 1;
-            float ratio = (float) Math.min(leftCount, rightCount) / Math.max(leftCount, rightCount);
-            
-            return ratio > 0.4f; // 允许一定不对称，但不要太离谱
-        }
-
-        public void showCurrentEvaluation() {
-            StringBuilder sb = new StringBuilder();
-            
-            for (int i = 0; i < stageNames.length; i++) {
-                if (stageCompleted[i]) {
-                    sb.append("【" + stageNames[i] + "】");
-                    boolean hasError = false;
-                    for (String err : stageErrors) {
-                        if (err.startsWith(stageNames[i])) {
-                            sb.append(" ✗\n  " + err.substring(stageNames[i].length() + 1) + "\n");
-                            hasError = true;
-                        }
-                    }
-                    if (!hasError) {
-                        sb.append(" ✓ 正常\n");
-                    }
-                } else if (i == currentStage) {
-                    sb.append("【" + stageNames[i] + "】绘制中...\n");
-                } else {
-                    sb.append("【" + stageNames[i] + "】未开始\n");
+            // QRS终点 - 回到基线的点
+            for (int i = currentPathPoints.size() - 1; i >= 0; i--) {
+                PointF p = currentPathPoints.get(i);
+                if (Math.abs(p.y - baselineY) > smallGridSize * 0.2f) {
+                    qrsEnd = currentPathPoints.get(Math.min(i + 1, currentPathPoints.size() - 1));
+                    break;
                 }
             }
-            
-            if (stageErrors.isEmpty() && currentStage >= stageNames.length) {
-                post(() -> MainActivity.this.showEvaluationResult(true, "所有波形参数均在正常范围内！\n\n" + sb.toString()));
-            } else {
-                post(() -> MainActivity.this.showEvaluationResult(false, sb.toString()));
-            }
         }
 
-        private void showFinalResult() {
-            if (stageErrors.isEmpty()) {
-                post(() -> MainActivity.this.showEvaluationResult(true, 
-                    "所有波形参数均在正常范围内！\n\n" +
-                    "• P波：时限<0.12s，幅度<0.25mv，向上圆钝\n" +
-                    "• PR间期：0.12-0.20s，水平于基线\n" +
-                    "• QRS：Q<0.04s，Q<1/4R，R>0.5mv，总<0.12s\n" +
-                    "• ST段：回到基线，无异常抬高\n" +
-                    "• T波：幅度合适，方向正确"));
-            } else {
-                StringBuilder sb = new StringBuilder("发现以下异常：\n\n");
-                for (int i = 0; i < stageErrors.size(); i++) {
-                    sb.append((i+1) + ". " + stageErrors.get(i) + "\n");
-                }
-                sb.append("\n建议对照标准重新练习。");
-                post(() -> MainActivity.this.showEvaluationResult(false, sb.toString()));
-            }
-        }
-
-        private void analyzeQRS() {
+        // 分析QRS各成分
+        private void analyzeQRSComponents() {
             float minY = Float.MAX_VALUE;
             float maxY = Float.MIN_VALUE;
             PointF minPoint = null;
@@ -658,12 +599,16 @@ public class MainActivity extends AppCompatActivity {
                 if (p.y > maxY) { maxY = p.y; maxPoint = p; }
             }
             
+            // R波 (最高点，向上)
             if (maxPoint != null && maxPoint.y < baselineY) {
                 rWaveAmp = (baselineY - maxPoint.y) / smallGridSize * mvPerSmallGrid;
             }
+            
+            // Q波和S波 (最低点，向下)
             if (minPoint != null && minPoint.y > baselineY) {
                 float downAmp = (minPoint.y - baselineY) / smallGridSize * mvPerSmallGrid;
-                if (minPoint.x < startPoint.x + (endPoint.x - startPoint.x) * 0.3) {
+                // 根据位置判断是Q波还是S波
+                if (qrsStart != null && minPoint.x < qrsStart.x + (endPoint.x - qrsStart.x) * 0.4f) {
                     qWaveAmp = downAmp;
                 } else {
                     sWaveAmp = downAmp;
@@ -671,43 +616,251 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        private float detectQTime() {
-            float qStart = 0, qEnd = 0;
+        // 精确Q波时间检测
+        private float detectQTimeAdvanced() {
+            if (qrsStart == null) return 0;
+            
+            float qStart = qrsStart.x;
+            float qEnd = qStart;
             boolean inQ = false;
+            
             for (PointF p : currentPathPoints) {
-                if (p.y > baselineY + smallGridSize * 0.3) {
-                    if (!inQ) { inQ = true; qStart = p.x; }
+                if (p.y > baselineY + smallGridSize * 0.3f) {
+                    if (!inQ) {
+                        inQ = true;
+                        qStart = p.x;
+                    }
                     qEnd = p.x;
-                } else if (inQ && p.y < baselineY) break;
+                } else if (inQ && p.y < baselineY) {
+                    break;
+                }
             }
-            return (qEnd - qStart) / smallGridSize * secondsPerSmallGrid;
+            
+            return ((qEnd - qStart) / smallGridSize) * secondsPerSmallGrid;
         }
 
-        private void analyzeSTSegment() {}
+        // ST段高级分析 - 敏感检测轻度压低
+        private void analyzeSTSegmentAdvanced() {
+            if (jPoint == null) return;
+            
+            // 在J点后40ms(1小格)处测量ST段
+            float jPlus40msX = jPoint.x + smallGridSize;
+            float stLevelAtJ40 = interpolateYAtX(jPlus40msX);
+            float stDeviation = (stLevelAtJ40 - baselineY) / smallGridSize * mvPerSmallGrid;
+            
+            detailedAnalysis.add("J点后40ms ST段: " + String.format("%.3f", stDeviation) + "mV");
+            
+            // 敏感检测0.05mV以上的压低
+            if (stDeviation > ST_DEPRESSION_THRESHOLD) {
+                // ST段压低 - 进一步分类形态
+                String morphology = classifySTMorphology();
+                
+                if (stDeviation > 0.1f) {
+                    stageErrors.add("ST段明显压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
+                } else {
+                    stageErrors.add("ST段轻度压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
+                }
+            }
+            
+            // 检测ST段是否回到基线
+            float endDeviation = (endPoint.y - baselineY) / smallGridSize * mvPerSmallGrid;
+            if (Math.abs(endDeviation) > 0.5f) {
+                stageErrors.add("ST段终点未回基线: 偏离" + String.format("%.2f", endDeviation) + "mV");
+            }
+        }
 
-        private void analyzeTWave() {
-            float maxT = 0;
+        // ST段形态分类 - 水平型 vs 上斜型
+        private String classifySTMorphology() {
+            // 测量ST段前半和后半的斜率
+            int midIndex = currentPathPoints.size() / 2;
+            if (midIndex < 2) return "无法分类";
+            
+            PointF pStart = currentPathPoints.get(0);
+            PointF pMid = currentPathPoints.get(midIndex);
+            PointF pEnd = currentPathPoints.get(currentPathPoints.size() - 1);
+            
+            float slope1 = (pMid.y - pStart.y) / (pMid.x - pStart.x + 0.001f);
+            float slope2 = (pEnd.y - pMid.y) / (pEnd.x - pMid.x + 0.001f);
+            
+            float avgSlope = Math.abs((slope1 + slope2) / 2);
+            
+            if (avgSlope < 0.1f) {
+                return "水平型压低";
+            } else if (slope2 > slope1) {
+                return "上斜型压低";
+            } else {
+                return "下斜型压低";
+            }
+        }
+
+        // T波高级分析 - 检测低平和倒置
+        private void analyzeTWaveAdvanced() {
+            float maxHeight = 0;
+            float minHeight = 0;
+            PointF tPeak = null;
+            
             for (PointF p : currentPathPoints) {
                 float h = baselineY - p.y;
-                if (h > maxT) maxT = h;
+                if (h > maxHeight) {
+                    maxHeight = h;
+                    tPeak = p;
+                }
+                if (h < minHeight) minHeight = h;
             }
-            tWaveAmp = maxT / smallGridSize * mvPerSmallGrid;
+            
+            tWaveAmp = (maxHeight / smallGridSize) * mvPerSmallGrid;
+            
+            detailedAnalysis.add("T波振幅: " + String.format("%.3f", tWaveAmp) + "mV");
+            
+            // T波终点检测用于QT间期
+            tWaveEnd = detectTWaveEnd();
+            if (tWaveEnd != null && qrsStart != null) {
+                qtInterval = ((tWaveEnd.x - qrsStart.x) / smallGridSize) * secondsPerSmallGrid;
+                detailedAnalysis.add("QT间期: " + String.format("%.3f", qtInterval) + "s");
+            }
+            
+            // 检测T波低平 (<0.2mV)
+            if (tWaveAmp < T_MIN_AMP && tWaveAmp > 0.05f) {
+                stageErrors.add("T波低平: " + String.format("%.3f", tWaveAmp) + "mV (应≥0.2mV)");
+            }
+            
+            // 检测T波倒置
+            if (minHeight < -smallGridSize * 0.3f) {
+                float invertedAmp = Math.abs(minHeight) / smallGridSize * mvPerSmallGrid;
+                stageErrors.add("T波倒置: 深度" + String.format("%.3f", invertedAmp) + "mV");
+            }
+            
+            // 检测T波振幅上限
+            if (tWaveAmp > T_MAX_AMP) {
+                stageErrors.add("T波振幅超标: " + String.format("%.3f", tWaveAmp) + "mV (应<0.5mV)");
+            }
+            
+            // T/R比值
+            if (rWaveAmp > 0) {
+                float trRatio = tWaveAmp / rWaveAmp;
+                detailedAnalysis.add("T/R比值: " + String.format("%.2f", trRatio));
+                
+                if (trRatio < T_MIN_RATIO) {
+                    stageErrors.add("T波相对不足: T/R=" + String.format("%.2f", trRatio) + " (应>0.1)");
+                }
+            }
+            
+            // 检测双峰T波
+            if (isBiphasicTWave()) {
+                stageErrors.add("T波形态异常: 双峰T波");
+            }
         }
 
-        private boolean isConvexUpward() {
-            if (currentPathPoints.size() < 3) return false;
-            int midIndex = currentPathPoints.size() / 2;
-            PointF midPoint = currentPathPoints.get(midIndex);
-            PointF start = currentPathPoints.get(0);
-            PointF end = currentPathPoints.get(currentPathPoints.size() - 1);
-            float lineYAtMid = start.y + (end.y - start.y) * 0.5f;
-            return midPoint.y > lineYAtMid + smallGridSize * 0.5;
+        // 检测T波终点 - 回到基线或T波与基线交点
+        private PointF detectTWaveEnd() {
+            for (int i = currentPathPoints.size() - 1; i >= 0; i--) {
+                PointF p = currentPathPoints.get(i);
+                if (Math.abs(p.y - baselineY) < smallGridSize * 0.2f) {
+                    return p;
+                }
+            }
+            return endPoint;
+        }
+
+        // 检测双峰T波
+        private boolean isBiphasicTWave() {
+            if (currentPathPoints.size() < 10) return false;
+            
+            int peakCount = 0;
+            boolean wasRising = false;
+            
+            for (int i = 1; i < currentPathPoints.size() - 1; i++) {
+                float prev = baselineY - currentPathPoints.get(i-1).y;
+                float curr = baselineY - currentPathPoints.get(i).y;
+                float next = baselineY - currentPathPoints.get(i+1).y;
+                
+                if (curr > prev && curr > next && curr > smallGridSize * 0.3f) {
+                    peakCount++;
+                }
+            }
+            
+            return peakCount >= 2;
+        }
+
+        // 线性插值获取某X处的Y值
+        private float interpolateYAtX(float x) {
+            for (int i = 0; i < currentPathPoints.size() - 1; i++) {
+                PointF p1 = currentPathPoints.get(i);
+                PointF p2 = currentPathPoints.get(i + 1);
+                
+                if (x >= p1.x && x <= p2.x) {
+                    float ratio = (x - p1.x) / (p2.x - p1.x);
+                    return p1.y + ratio * (p2.y - p1.y);
+                }
+            }
+            return baselineY;
+        }
+
+        public void showCurrentEvaluation() {
+            StringBuilder sb = new StringBuilder();
+            
+            // 汇总各阶段分析结果
+            for (int i = 0; i < stageNames.length; i++) {
+                if (stageCompleted[i]) {
+                    sb.append("【" + stageNames[i] + "】");
+                    boolean hasError = false;
+                    for (String err : stageErrors) {
+                        if (err.startsWith(stageNames[i].split("")[0])) {
+                            sb.append(" ✗\n  " + err + "\n");
+                            hasError = true;
+                        }
+                    }
+                    if (!hasError) {
+                        sb.append(" ✓ 正常\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+            
+            // 添加详细分析数据
+            sb.append("【详细测量数据】\n");
+            for (String detail : detailedAnalysis) {
+                sb.append(detail + "\n");
+            }
+            
+            post(() -> MainActivity.this.showEvaluationResult(stageErrors.isEmpty(), sb.toString()));
+        }
+
+        private void showFinalResult() {
+            StringBuilder sb = new StringBuilder();
+            
+            if (stageErrors.isEmpty()) {
+                sb.append("✓ 所有波形参数均在正常范围内！\n\n");
+            } else {
+                sb.append("发现以下异常：\n\n");
+                for (int i = 0; i < stageErrors.size(); i++) {
+                    sb.append((i+1) + ". " + stageErrors.get(i) + "\n");
+                }
+                sb.append("\n");
+            }
+            
+            sb.append("【完整测量报告】\n");
+            for (String detail : detailedAnalysis) {
+                sb.append(detail + "\n");
+            }
+            
+            post(() -> MainActivity.this.showEvaluationResult(stageErrors.isEmpty(), sb.toString()));
         }
 
         public void reset() {
             drawnPath.reset();
             currentPathPoints.clear();
+            allPathPoints.clear();
             stageErrors.clear();
+            detailedAnalysis.clear();
+            
+            pWaveEnd = null;
+            qrsStart = null;
+            qrsEnd = null;
+            jPoint = null;
+            tWaveStart = null;
+            tWaveEnd = null;
+            
             for (int i = 0; i < stageCompleted.length; i++) {
                 stageCompleted[i] = false;
             }
@@ -719,6 +872,9 @@ public class MainActivity extends AppCompatActivity {
             rWaveAmp = 0;
             sWaveAmp = 0;
             tWaveAmp = 0;
+            prInterval = 0;
+            qrsDuration = 0;
+            qtInterval = 0;
             pWaveStarted = false;
             pWaveHasGoneUp = false;
             updateStage(stageNames[0]);

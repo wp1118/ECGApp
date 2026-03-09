@@ -126,8 +126,8 @@ public class MainActivity extends AppCompatActivity {
         private Paint textPaint;
         private Paint startPointPaint;
         
-        // 坐标格缩小到70%：100f * 0.7 = 70f
-        private float smallGridSize = 70f;
+        // 坐标格缩小到60%：100f * 0.6 = 60f
+        private float smallGridSize = 60f;
         private float bigGridSize = smallGridSize * 5;
         
         private Path drawnPath;
@@ -268,10 +268,10 @@ public class MainActivity extends AppCompatActivity {
             String hint = "";
             switch (currentStage) {
                 case 0:
-                    hint = "【P波】<3格(210px)，<2.5格(175px)，向上，回基线自动结算";
+                    hint = "【P波】<3格(180px)，<2.5格(150px)，向上，回基线自动结算";
                     break;
                 case 1:
-                    hint = "【PR间期】水平，3-5格(210-350px)";
+                    hint = "【PR间期】水平，3-5格(180-300px)";
                     break;
                 case 2:
                     hint = "【QRS】Q<1格→R>5格→S，总<3格";

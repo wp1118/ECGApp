@@ -2,6 +2,7 @@ package com.ecg.drawer;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.graphics.*;
 import android.os.Bundle;
 import android.view.MotionEvent;
@@ -26,6 +27,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 强制横屏模式
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         setContentView(R.layout.activity_main);
 
         tvStatus = findViewById(R.id.tvStatus);
@@ -52,13 +55,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showContactDialog() {
-        // 创建滚动视图
         ScrollView scrollView = new ScrollView(this);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(50, 50, 50, 50);
         
-        // 添加文字说明
         TextView textView = new TextView(this);
         textView.setText(getContactText());
         textView.setTextSize(16);
@@ -66,7 +67,6 @@ public class MainActivity extends AppCompatActivity {
         textView.setPadding(0, 0, 0, 30);
         layout.addView(textView);
         
-        // 添加二维码图片
         ImageView qrImage = new ImageView(this);
         qrImage.setImageResource(R.drawable.donation_qr);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -134,6 +134,16 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
+    // P波绘制过程中实时显示错误（不阻塞）
+    public void showPWaveError(String message) {
+        new AlertDialog.Builder(this)
+            .setTitle("P波异常")
+            .setMessage(message)
+            .setPositiveButton("重新绘制", (dialog, which) -> ecgView.reset())
+            .setCancelable(false)
+            .show();
+    }
+
     class ECGView extends View {
         private Paint gridPaint;
         private Paint ecgPaint;
@@ -141,7 +151,7 @@ public class MainActivity extends AppCompatActivity {
         private Paint textPaint;
         private Paint startPointPaint;
         
-        // 坐标纸放大5倍：20f -> 100f
+        // 坐标纸放大5倍
         private float smallGridSize = 100f;
         private float bigGridSize = smallGridSize * 5;
         
@@ -165,21 +175,27 @@ public class MainActivity extends AppCompatActivity {
         private float tWaveAmp = 0;
         private float maxQRSAmp = 0;
         
-        // 标准值
+        // 标准值（按5倍比例放大后的像素标准）
+        // 原始标准: P_MAX_TIME = 0.12s = 3小格 = 3 * 0.04s
+        // 放大后: 3小格 = 3 * 100f = 300像素
         private final float P_MAX_TIME = 0.12f;
         private final float P_MAX_AMP = 0.25f;
         private final float PR_MIN_TIME = 0.12f;
         private final float PR_MAX_TIME = 0.20f;
         private final float Q_MAX_TIME = 0.04f;
-        private final float Q_MAX_RATIO = 0.25f; // Q < 1/4 R
+        private final float Q_MAX_RATIO = 0.25f;
         private final float QRS_MAX_TIME = 0.12f;
         private final float ST_ELEVATION_MAX = 0.1f;
         private final float ST_DEPRESSION_MAX = 0.05f;
         private final float T_MAX_AMP = 0.5f;
-        private final float T_MIN_RATIO = 0.1f; // T > R/10
+        private final float T_MIN_RATIO = 0.1f;
         
+        // 每小格的时间和电压值（不变，是物理标准）
         private float secondsPerSmallGrid = 0.04f;
         private float mvPerSmallGrid = 0.1f;
+        
+        // P波实时检测标志
+        private boolean pWaveErrorShown = false;
 
         public ECGView(Context context) {
             super(context);
@@ -205,7 +221,6 @@ public class MainActivity extends AppCompatActivity {
             textPaint.setColor(Color.BLACK);
             textPaint.setTextSize(30);
 
-            // P波起始点标记画笔
             startPointPaint = new Paint();
             startPointPaint.setColor(Color.GREEN);
             startPointPaint.setStrokeWidth(5);
@@ -213,14 +228,13 @@ public class MainActivity extends AppCompatActivity {
             
             drawnPath = new Path();
             currentPathPoints = new ArrayList<>();
-            // 基线将在 onSizeChanged 中设置到屏幕中下1/3处
             updateStage(stageNames[0]);
         }
 
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             super.onSizeChanged(w, h, oldw, oldh);
-            // 设置基线到屏幕中下1/3处
+            // 横屏模式下基线在垂直方向中下1/3处
             baselineY = h * 2f / 3f;
         }
 
@@ -238,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
             int width = getWidth();
             int height = getHeight();
             
+            // 绘制小格（5倍放大）
             for (int x = 0; x < width; x += (int)smallGridSize) {
                 canvas.drawLine(x, 0, x, height, gridPaint);
             }
@@ -245,6 +260,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawLine(0, y, width, y, gridPaint);
             }
             
+            // 绘制大格（每5小格一条粗线）
             Paint bigGridPaint = new Paint();
             bigGridPaint.setColor(Color.parseColor("#FF1493"));
             bigGridPaint.setStrokeWidth(2);
@@ -259,7 +275,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 绘制P波起始点标志
         private void drawPWaveStartMarker(Canvas canvas) {
-            float markerX = smallGridSize; // 最左端留一格空白
+            float markerX = smallGridSize * 2; // 最左端留2格空白
             float markerY = baselineY;
             
             // 绘制绿色十字标记
@@ -279,10 +295,10 @@ public class MainActivity extends AppCompatActivity {
             String hint = "";
             switch (currentStage) {
                 case 0:
-                    hint = "【P波】向上圆钝波，时限<3格，高度<2.5格";
+                    hint = "【P波】向上圆钝波，时限<3格(300像素)，高度<2.5格(250像素)";
                     break;
                 case 1:
-                    hint = "【PR间期】回到基线，水平线，长度3-5格";
+                    hint = "【PR间期】回到基线，水平线，长度3-5格(300-500像素)";
                     break;
                 case 2:
                     hint = "【QRS】Q(下)<1格→R(上尖>5格)→S(下)，总宽<3格";
@@ -295,11 +311,11 @@ public class MainActivity extends AppCompatActivity {
                     break;
             }
             canvas.drawText(hint, 50, 80, textPaint);
-            canvas.drawText("每小格：0.04s / 0.1mv", 50, getHeight() - 50, textPaint);
+            canvas.drawText("每小格：0.04s / 0.1mv（网格已5倍放大）", 50, getHeight() - 50, textPaint);
             
             // 绘制版权水印
             Paint copyrightPaint = new Paint();
-            copyrightPaint.setColor(Color.parseColor("#33FF1493")); // 半透明
+            copyrightPaint.setColor(Color.parseColor("#33FF1493"));
             copyrightPaint.setTextSize(60);
             copyrightPaint.setTextAlign(Paint.Align.CENTER);
             canvas.save();
@@ -316,10 +332,11 @@ public class MainActivity extends AppCompatActivity {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     currentPathPoints.clear();
+                    pWaveErrorShown = false;
                     if (currentStage == 0) {
                         drawnPath.reset();
                         // P波从标记位置开始
-                        startX = smallGridSize;
+                        startX = smallGridSize * 2;
                         drawnPath.moveTo(startX, baselineY);
                         startPoint = new PointF(startX, baselineY);
                         lastX = startX;
@@ -338,6 +355,12 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_MOVE:
                     drawnPath.lineTo(x, y);
                     currentPathPoints.add(new PointF(x, y));
+                    
+                    // P波阶段实时检测
+                    if (currentStage == 0 && !pWaveErrorShown) {
+                        checkPWaveRealTime(x, y);
+                    }
+                    
                     invalidate();
                     return true;
 
@@ -358,6 +381,38 @@ public class MainActivity extends AppCompatActivity {
                     return true;
             }
             return super.onTouchEvent(event);
+        }
+        
+        // P波实时检测 - 绘制过程中立即检测错误
+        private void checkPWaveRealTime(float x, float y) {
+            float width = Math.abs(x - startPoint.x);
+            float height = baselineY - y; // 向上为正
+            
+            float smallGridsX = width / smallGridSize;
+            float smallGridsYUp = height / smallGridSize;
+            
+            // 检测P波时间是否超标（>3小格 = 0.12s）
+            if (smallGridsX > 3.0f) {
+                pWaveErrorShown = true;
+                float pTime = smallGridsX * secondsPerSmallGrid;
+                post(() -> showPWaveError("P波时间超标！\n当前：" + String.format("%.2f", pTime) + "s\n标准：<0.12s（3小格）\n\n提示：P波应控制在3小格（300像素）以内"));
+                return;
+            }
+            
+            // 检测P波幅度是否超标（>2.5小格 = 0.25mv）
+            if (smallGridsYUp > 2.5f) {
+                pWaveErrorShown = true;
+                float pAmp = smallGridsYUp * mvPerSmallGrid;
+                post(() -> showPWaveError("P波幅度超标！\n当前：" + String.format("%.2f", pAmp) + "mv\n标准：<0.25mv（2.5小格）\n\n提示：P波高度应控制在2.5小格（250像素）以内"));
+                return;
+            }
+            
+            // 检测P波是否向下（必须在基线以上）
+            if (y > baselineY + smallGridSize * 0.5f) {
+                pWaveErrorShown = true;
+                post(() -> showPWaveError("P波应该是向上的！\n\n提示：P波应在基线以上，向上圆钝"));
+                return;
+            }
         }
 
         private boolean validateStage() {
@@ -382,11 +437,11 @@ public class MainActivity extends AppCompatActivity {
                     pWaveAmp = smallGridsYUp * mvPerSmallGrid;
                     
                     if (pTime > P_MAX_TIME) {
-                        showError("P波时间超标！\n当前：" + String.format("%.2f", pTime) + "s\n标准：<0.12s");
+                        showError("P波时间超标！\n当前：" + String.format("%.2f", pTime) + "s\n标准：<0.12s（3小格/300像素）");
                         return false;
                     }
                     if (pWaveAmp > P_MAX_AMP) {
-                        showError("P波幅度超标！\n当前：" + String.format("%.2f", pWaveAmp) + "mv\n标准：<0.25mv");
+                        showError("P波幅度超标！\n当前：" + String.format("%.2f", pWaveAmp) + "mv\n标准：<0.25mv（2.5小格/250像素）");
                         return false;
                     }
                     if (endPoint.y > baselineY - smallGridSize) {
@@ -399,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                     float prTime = smallGridsX * secondsPerSmallGrid;
                     
                     if (prTime < PR_MIN_TIME || prTime > PR_MAX_TIME) {
-                        showError("PR间期不正常！\n当前：" + String.format("%.2f", prTime) + "s\n标准：0.12-0.20s");
+                        showError("PR间期不正常！\n当前：" + String.format("%.2f", prTime) + "s\n标准：0.12-0.20s（3-5小格）");
                         return false;
                     }
                     if (Math.abs(endPoint.y - baselineY) > smallGridSize * 0.5) {
@@ -411,28 +466,24 @@ public class MainActivity extends AppCompatActivity {
                 case 2: // QRS波群
                     float qrsTime = smallGridsX * secondsPerSmallGrid;
                     
-                    // 分析QRS波群结构
                     analyzeQRS();
                     
                     if (qrsTime > QRS_MAX_TIME) {
-                        showError("QRS波群时间超标！\n当前：" + String.format("%.2f", qrsTime) + "s\n标准：<0.12s");
+                        showError("QRS波群时间超标！\n当前：" + String.format("%.2f", qrsTime) + "s\n标准：<0.12s（3小格）");
                         return false;
                     }
                     
-                    // 检测QRS振幅>0.5mv
                     if (rWaveAmp < 0.5f) {
-                        showError("QRS振幅不足！\n当前R波：" + String.format("%.2f", rWaveAmp) + "mv\n标准：>0.5mv");
+                        showError("QRS振幅不足！\n当前R波：" + String.format("%.2f", rWaveAmp) + "mv\n标准：>0.5mv（5小格）");
                         return false;
                     }
                     
-                    // 检测Q波时间
                     float qTime = detectQTime();
                     if (qTime > Q_MAX_TIME) {
-                        showError("Q波时间超标！\n当前：" + String.format("%.2f", qTime) + "s\n标准：<0.04s");
+                        showError("Q波时间超标！\n当前：" + String.format("%.2f", qTime) + "s\n标准：<0.04s（1小格）");
                         return false;
                     }
                     
-                    // 检测Q波幅度比例
                     if (qWaveAmp > 0 && rWaveAmp > 0) {
                         float qRratio = qWaveAmp / rWaveAmp;
                         if (qRratio > Q_MAX_RATIO) {
@@ -441,7 +492,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     
-                    // 检查是否有R波
                     if (rWaveAmp <= 0) {
                         showError("QRS波群缺少R波！\n正常QRS应有Q→R→S结构");
                         return false;
@@ -454,7 +504,6 @@ public class MainActivity extends AppCompatActivity {
                     float stDeviation = smallGridsYUp * mvPerSmallGrid;
                     boolean isElevated = maxHeight > smallGridSize;
                     
-                    // 检测弓背上抬（异常形态）
                     if (isElevated && isConvexUpward()) {
                         showError("ST段弓背上抬！\n这是急性心梗的表现，属于异常！\n正常ST段应为水平或轻微下斜");
                         return false;
@@ -481,7 +530,6 @@ public class MainActivity extends AppCompatActivity {
                         return false;
                     }
                     
-                    // 检测T波与R波比例
                     if (rWaveAmp > 0) {
                         float trRatio = tWaveAmp / rWaveAmp;
                         if (trRatio < T_MIN_RATIO) {
@@ -500,7 +548,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private void analyzeQRS() {
-            // 分析QRS波群，计算Q、R、S波的幅度
             float minY = Float.MAX_VALUE;
             float maxY = Float.MIN_VALUE;
             PointF minPoint = null;
@@ -517,18 +564,14 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 计算各波幅度
             float baseline = baselineY;
             
-            // R波是最高点（向上）
             if (maxPoint != null && maxPoint.y < baseline) {
                 rWaveAmp = (baseline - maxPoint.y) / smallGridSize * mvPerSmallGrid;
             }
             
-            // Q波和S波是最低点（向下）
             if (minPoint != null && minPoint.y > baseline) {
                 float downAmp = (minPoint.y - baseline) / smallGridSize * mvPerSmallGrid;
-                // 根据位置判断是Q波还是S波
                 if (minPoint.x < startPoint.x + (endPoint.x - startPoint.x) * 0.3) {
                     qWaveAmp = downAmp;
                 } else {
@@ -540,7 +583,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private float detectQTime() {
-            // 检测Q波时间（向下的部分持续时间）
             float qStart = 0, qEnd = 0;
             boolean inQ = false;
             
@@ -565,7 +607,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private void analyzeTWave() {
-            // T波分析
             float maxT = 0;
             for (PointF p : currentPathPoints) {
                 float h = baselineY - p.y;
@@ -575,8 +616,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private boolean isConvexUpward() {
-            // 检测是否为弓背上抬（凸向上形态）
-            // 通过计算中点高度来判断
             if (currentPathPoints.size() < 3) return false;
             
             int midIndex = currentPathPoints.size() / 2;
@@ -584,10 +623,8 @@ public class MainActivity extends AppCompatActivity {
             PointF start = currentPathPoints.get(0);
             PointF end = currentPathPoints.get(currentPathPoints.size() - 1);
             
-            // 计算连接起点和终点的直线在中点处的Y值
             float lineYAtMid = start.y + (end.y - start.y) * 0.5f;
             
-            // 如果实际中点明显低于直线（屏幕坐标Y向下增加），则为弓背向上
             return midPoint.y > lineYAtMid + smallGridSize * 0.5;
         }
 
@@ -617,6 +654,7 @@ public class MainActivity extends AppCompatActivity {
             sWaveAmp = 0;
             tWaveAmp = 0;
             maxQRSAmp = 0;
+            pWaveErrorShown = false;
             updateStage(stageNames[0]);
             updateStatus("准备就绪");
             invalidate();

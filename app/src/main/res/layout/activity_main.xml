@@ -10,32 +10,32 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#FF1493"
-        android:padding="10dp"
+        android:padding="5dp"
         android:orientation="horizontal">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="心电图标准波形绘制"
+            android:text="ECG绘制"
             android:textColor="#FFFFFF"
-            android:textSize="20sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnGuide"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="标准说明"
-            android:textSize="12sp" />
+            android:text="说明"
+            android:textSize="8sp" />
 
         <Button
             android:id="@+id/btnContact"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="联系我们"
-            android:textSize="12sp"
-            android:layout_marginStart="8dp" />
+            android:text="联系"
+            android:textSize="8sp"
+            android:layout_marginStart="4dp" />
     </LinearLayout>
 
     <!-- 状态信息 -->
@@ -43,7 +43,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="10dp"
+        android:padding="5dp"
         android:background="#FFF0F5">
 
         <TextView
@@ -51,18 +51,18 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="当前阶段：P波"
+            android:text="当前：P波"
             android:textColor="#FF1493"
-            android:textSize="16sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="准备就绪"
+            android:text="就绪"
             android:textColor="#333333"
-            android:textSize="14sp" />
+            android:textSize="9sp" />
     </LinearLayout>
 
     <!-- 心电图绘制区域 -->
@@ -79,27 +79,27 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="10dp"
+        android:padding="5dp"
         android:gravity="center">
 
         <Button
             android:id="@+id/btnReset"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="重新绘制"
-            android:textSize="16sp"
-            android:paddingLeft="30dp"
-            android:paddingRight="30dp" />
+            android:text="重绘"
+            android:textSize="10sp"
+            android:paddingLeft="15dp"
+            android:paddingRight="15dp" />
     </LinearLayout>
 
     <!-- 版权信息 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="© 2025 woP All Rights Reserved"
+        android:text="© 2025 woP"
         android:textColor="#666666"
-        android:textSize="12sp"
+        android:textSize="8sp"
         android:gravity="center"
-        android:padding="5dp" />
+        android:padding="2dp" />
 
 </LinearLayout>

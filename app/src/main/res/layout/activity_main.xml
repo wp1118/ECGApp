@@ -28,6 +28,14 @@
             android:layout_height="wrap_content"
             android:text="标准说明"
             android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnContact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="联系我们"
+            android:textSize="12sp"
+            android:layout_marginStart="8dp" />
     </LinearLayout>
 
     <!-- 状态信息 -->

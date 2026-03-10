@@ -571,20 +571,28 @@ public class MainActivity extends AppCompatActivity {
                 stageErrors.add("R波振幅不足: " + String.format("%.3f", rWaveAmp) + "mV (应≥0.5mV)");
             }
             
-            // Q波分析
+            // Q波分析 - [修复] 异常Q波：>1/4R 且 >0.04s
             if (qWaveAmp > 0) {
                 float qTime = detectQTimeAdvanced();
                 detailedAnalysis.add("Q波时限: " + String.format("%.3f", qTime) + "s");
                 
-                if (qTime > Q_MAX_TIME) {
-                    stageErrors.add("Q波时限超标: " + String.format("%.3f", qTime) + "s");
-                }
+                boolean qTimeAbnormal = qTime > Q_MAX_TIME;
+                boolean qRatioAbnormal = false;
+                float qRratio = 0;
                 
                 if (rWaveAmp > 0) {
-                    float qRratio = qWaveAmp / rWaveAmp;
-                    if (qRratio > Q_MAX_RATIO) {
-                        stageErrors.add("Q波幅度超标: Q/R=" + String.format("%.2f", qRratio));
-                    }
+                    qRratio = qWaveAmp / rWaveAmp;
+                    detailedAnalysis.add("Q/R比值: " + String.format("%.2f", qRratio));
+                    qRatioAbnormal = qRratio > Q_MAX_RATIO;
+                }
+                
+                // 异常Q波需要同时满足：时限>0.04s 且 振幅>1/4R
+                if (qTimeAbnormal && qRatioAbnormal) {
+                    stageErrors.add("【QRS】异常Q波: 时限=" + String.format("%.3f", qTime) + "s, Q/R=" + String.format("%.2f", qRratio) + " (>1/4R且>0.04s)");
+                } else if (qTimeAbnormal) {
+                    stageErrors.add("【QRS】Q波时限延长: " + String.format("%.3f", qTime) + "s (应≤0.04s)");
+                } else if (qRatioAbnormal) {
+                    stageErrors.add("【QRS】Q波深度异常: Q/R=" + String.format("%.2f", qRratio) + " (应≤1/4)");
                 }
             }
             
@@ -728,7 +736,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // T波高级分析 - 检测低平和倒置
+        // T波高级分析 - [修复] 检测低平、倒置和双向
         private void analyzeTWaveAdvanced() {
             float maxHeight = 0;
             float minHeight = 0;
@@ -744,6 +752,7 @@ public class MainActivity extends AppCompatActivity {
             }
             
             tWaveAmp = (maxHeight / smallGridSize) * mvPerSmallGrid;
+            float tMinAmp = (Math.abs(minHeight) / smallGridSize) * mvPerSmallGrid;
             
             detailedAnalysis.add("T波振幅: " + String.format("%.3f", tWaveAmp) + "mV");
             
@@ -754,35 +763,31 @@ public class MainActivity extends AppCompatActivity {
                 detailedAnalysis.add("QT间期: " + String.format("%.3f", qtInterval) + "s");
             }
             
-            // 检测T波低平 (<0.2mV)
-            if (tWaveAmp < T_MIN_AMP && tWaveAmp > 0.05f) {
-                stageErrors.add("T波低平: " + String.format("%.3f", tWaveAmp) + "mV (应≥0.2mV)");
-            }
+            // [修复] 异常T波检测
+            boolean isInverted = minHeight < -smallGridSize * 0.2f;  // 倒置
+            boolean isBiphasic = isBiphasicTWave();  // 双向
+            boolean isLowVoltage = false;  // 低平 (<1/10R)
+            float trRatio = 0;
             
-            // 检测T波倒置
-            if (minHeight < -smallGridSize * 0.3f) {
-                float invertedAmp = Math.abs(minHeight) / smallGridSize * mvPerSmallGrid;
-                stageErrors.add("T波倒置: 深度" + String.format("%.3f", invertedAmp) + "mV");
-            }
-            
-            // 检测T波振幅上限
-            if (tWaveAmp > T_MAX_AMP) {
-                stageErrors.add("T波振幅超标: " + String.format("%.3f", tWaveAmp) + "mV (应<0.5mV)");
-            }
-            
-            // T/R比值
             if (rWaveAmp > 0) {
-                float trRatio = tWaveAmp / rWaveAmp;
+                trRatio = tWaveAmp / rWaveAmp;
                 detailedAnalysis.add("T/R比值: " + String.format("%.2f", trRatio));
-                
-                if (trRatio < T_MIN_RATIO) {
-                    stageErrors.add("T波相对不足: T/R=" + String.format("%.2f", trRatio) + " (应>0.1)");
-                }
+                isLowVoltage = trRatio < T_MIN_RATIO;  // < 1/10R
             }
             
-            // 检测双峰T波
-            if (isBiphasicTWave()) {
-                stageErrors.add("T波形态异常: 双峰T波");
+            // 异常T波综合判断
+            if (isInverted) {
+                stageErrors.add("【T波】T波倒置: 深度" + String.format("%.3f", tMinAmp) + "mV");
+            } else if (isBiphasic) {
+                stageErrors.add("【T波】T波双向: 正负双向波形");
+            } else if (isLowVoltage && tWaveAmp > 0.05f) {
+                // 低平但不是完全消失
+                stageErrors.add("【T波】T波低平: T/R=" + String.format("%.2f", trRatio) + " (应≥0.1,即≥1/10R)");
+            }
+            
+            // T波振幅上限检测
+            if (tWaveAmp > T_MAX_AMP) {
+                stageErrors.add("【T波】T波振幅过高: " + String.format("%.3f", tWaveAmp) + "mV (应<0.5mV)");
             }
         }
 
@@ -797,23 +802,30 @@ public class MainActivity extends AppCompatActivity {
             return endPoint;
         }
 
-        // 检测双峰T波
+        // 检测双向T波 - [修复] 检测正负双向波形
         private boolean isBiphasicTWave() {
             if (currentPathPoints.size() < 10) return false;
             
-            int peakCount = 0;
+            boolean hasPositivePeak = false;
+            boolean hasNegativePeak = false;
             
             for (int i = 1; i < currentPathPoints.size() - 1; i++) {
                 float prev = baselineY - currentPathPoints.get(i-1).y;
                 float curr = baselineY - currentPathPoints.get(i).y;
                 float next = baselineY - currentPathPoints.get(i+1).y;
                 
-                if (curr > prev && curr > next && curr > smallGridSize * 0.3f) {
-                    peakCount++;
+                // 正向峰值
+                if (curr > prev && curr > next && curr > smallGridSize * 0.2f) {
+                    hasPositivePeak = true;
+                }
+                // 负向峰值
+                if (curr < prev && curr < next && curr < -smallGridSize * 0.2f) {
+                    hasNegativePeak = true;
                 }
             }
             
-            return peakCount >= 2;
+            // 同时存在正向和负向峰值，判定为双向
+            return hasPositivePeak && hasNegativePeak;
         }
 
         // 线性插值获取某X处的Y值

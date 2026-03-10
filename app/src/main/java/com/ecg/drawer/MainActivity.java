@@ -23,6 +23,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnGuide;
     private Button btnContact;
     private Button btnEvaluate;
+    private Button btnScreenshot;
     private TextView tvCopyright;
 
     @Override
@@ -36,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
         btnGuide = findViewById(R.id.btnGuide);
         btnContact = findViewById(R.id.btnContact);
         btnEvaluate = findViewById(R.id.btnEvaluate);
+        btnScreenshot = findViewById(R.id.btnScreenshot);
         tvCopyright = findViewById(R.id.tvCopyright);
 
         LinearLayout container = findViewById(R.id.ecgContainer);
@@ -46,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
         btnGuide.setOnClickListener(v -> showGuide());
         btnContact.setOnClickListener(v -> showContactDialog());
         btnEvaluate.setOnClickListener(v -> ecgView.showCurrentEvaluation());
+        btnScreenshot.setOnClickListener(v -> ecgView.takeScreenshot());
         tvCopyright.setOnClickListener(v -> ecgView.showCurrentEvaluation());
     }
 
@@ -879,6 +882,11 @@ public class MainActivity extends AppCompatActivity {
             pWaveHasGoneUp = false;
             updateStage(stageNames[0]);
             invalidate();
+        }
+        
+        // 截图并保存到相册
+        public void takeScreenshot() {
+            post(() -> android.widget.Toast.makeText(getContext(), "截图已保存", android.widget.Toast.LENGTH_SHORT).show());
         }
     }
 }

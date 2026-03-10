@@ -596,6 +596,17 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
+            // [新增] QRS低电压检测 - 所有波形振幅<0.5mV
+            float qrsTotalAmp = qWaveAmp + rWaveAmp + sWaveAmp;
+            if (qrsTotalAmp > 0 && qrsTotalAmp < 0.5f) {
+                stageErrors.add("【QRS】低电压: 总振幅=" + String.format("%.3f", qrsTotalAmp) + "mV (应≥0.5mV)");
+            }
+            
+            // R波低电压单独检测
+            if (rWaveAmp > 0 && rWaveAmp < R_MIN_AMP) {
+                stageErrors.add("【QRS】R波低电压: " + String.format("%.3f", rWaveAmp) + "mV (应≥0.5mV)");
+            }
+            
             // 标记J点
             jPoint = endPoint;
         }
@@ -763,8 +774,11 @@ public class MainActivity extends AppCompatActivity {
                 detailedAnalysis.add("QT间期: " + String.format("%.3f", qtInterval) + "s");
             }
             
-            // [修复] 异常T波检测
-            boolean isInverted = minHeight < -smallGridSize * 0.2f;  // 倒置
+            // [修复] 异常T波检测 - 增强倒置检测
+            // minHeight < 0 表示有低于基线的部分（屏幕坐标系Y向下为正）
+            // 降低阈值到 0.1个小格，提高检测灵敏度
+            boolean hasNegativeComponent = minHeight < -smallGridSize * 0.1f;
+            boolean hasPositiveComponent = maxHeight > smallGridSize * 0.1f;
             boolean isBiphasic = isBiphasicTWave();  // 双向
             boolean isLowVoltage = false;  // 低平 (<1/10R)
             float trRatio = 0;
@@ -775,12 +789,18 @@ public class MainActivity extends AppCompatActivity {
                 isLowVoltage = trRatio < T_MIN_RATIO;  // < 1/10R
             }
             
-            // 异常T波综合判断
-            if (isInverted) {
-                stageErrors.add("【T波】T波倒置: 深度" + String.format("%.3f", tMinAmp) + "mV");
-            } else if (isBiphasic) {
+            detailedAnalysis.add("T波正向峰: " + String.format("%.3f", tWaveAmp) + "mV, 负向峰: " + String.format("%.3f", tMinAmp) + "mV");
+            
+            // 异常T波综合判断 - 改进逻辑
+            if (isBiphasic) {
                 stageErrors.add("【T波】T波双向: 正负双向波形");
-            } else if (isLowVoltage && tWaveAmp > 0.05f) {
+            } else if (!hasPositiveComponent && hasNegativeComponent) {
+                // 纯倒置T波：没有正向成分，只有负向成分
+                stageErrors.add("【T波】T波倒置: 深度" + String.format("%.3f", tMinAmp) + "mV (纯负向波形)");
+            } else if (hasPositiveComponent && hasNegativeComponent && tMinAmp > tWaveAmp * 0.5f) {
+                // 有正向成分，但负向成分也很大（深度倒置）
+                stageErrors.add("【T波】T波倒置: 负向" + String.format("%.3f", tMinAmp) + "mV > 正向" + String.format("%.3f", tWaveAmp) + "mV");
+            } else if (isLowVoltage && tWaveAmp > 0.02f) {
                 // 低平但不是完全消失
                 stageErrors.add("【T波】T波低平: T/R=" + String.format("%.2f", trRatio) + " (应≥0.1,即≥1/10R)");
             }
@@ -882,13 +902,49 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("✓ 所有波形参数均在正常范围内！\n\n");
             } else {
                 sb.append("发现以下异常：\n\n");
-                for (int i = 0; i < stageErrors.size(); i++) {
-                    sb.append((i+1)).append(". ").append(stageErrors.get(i)).append("\n");
+                
+                // [改进] 按波形类型分类显示异常
+                List<String> qrsErrors = new ArrayList<>();
+                List<String> tWaveErrors = new ArrayList<>();
+                List<String> otherErrors = new ArrayList<>();
+                
+                for (String err : stageErrors) {
+                    if (err.contains("Q波") || err.contains("QRS")) {
+                        qrsErrors.add(err);
+                    } else if (err.contains("T波")) {
+                        tWaveErrors.add(err);
+                    } else {
+                        otherErrors.add(err);
+                    }
                 }
-                sb.append("\n");
+                
+                int idx = 1;
+                if (!qrsErrors.isEmpty()) {
+                    sb.append("【QRS波群异常】\n");
+                    for (String err : qrsErrors) {
+                        sb.append("  ").append(idx++).append(". ").append(err).append("\n");
+                    }
+                    sb.append("\n");
+                }
+                
+                if (!tWaveErrors.isEmpty()) {
+                    sb.append("【T波异常】\n");
+                    for (String err : tWaveErrors) {
+                        sb.append("  ").append(idx++).append(". ").append(err).append("\n");
+                    }
+                    sb.append("\n");
+                }
+                
+                if (!otherErrors.isEmpty()) {
+                    sb.append("【其他异常】\n");
+                    for (String err : otherErrors) {
+                        sb.append("  ").append(idx++).append(". ").append(err).append("\n");
+                    }
+                    sb.append("\n");
+                }
             }
             
-            sb.append("【完整测量报告】\n");
+            sb.append("【详细测量数据】\n");
             for (String detail : detailedAnalysis) {
                 sb.append(detail).append("\n");
             }

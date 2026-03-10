@@ -762,10 +762,14 @@ public class MainActivity extends AppCompatActivity {
                 if (h < minHeight) minHeight = h;
             }
             
-            tWaveAmp = (maxHeight / smallGridSize) * mvPerSmallGrid;
-            float tMinAmp = (Math.abs(minHeight) / smallGridSize) * mvPerSmallGrid;
+            // 计算正负向振幅（单位：mV）
+            float positiveAmp = (maxHeight / smallGridSize) * mvPerSmallGrid;
+            float negativeAmp = (Math.abs(minHeight) / smallGridSize) * mvPerSmallGrid;
             
-            detailedAnalysis.add("T波振幅: " + String.format("%.3f", tWaveAmp) + "mV");
+            // T波主振幅取正值（用于显示）
+            tWaveAmp = positiveAmp;
+            
+            detailedAnalysis.add("T波正向: " + String.format("%.3f", positiveAmp) + "mV, 负向: " + String.format("%.3f", negativeAmp) + "mV");
             
             // T波终点检测用于QT间期
             tWaveEnd = detectTWaveEnd();
@@ -774,40 +778,41 @@ public class MainActivity extends AppCompatActivity {
                 detailedAnalysis.add("QT间期: " + String.format("%.3f", qtInterval) + "s");
             }
             
-            // [修复] 异常T波检测 - 增强倒置检测
-            // minHeight < 0 表示有低于基线的部分（屏幕坐标系Y向下为正）
-            // 降低阈值到 0.1个小格，提高检测灵敏度
-            boolean hasNegativeComponent = minHeight < -smallGridSize * 0.1f;
-            boolean hasPositiveComponent = maxHeight > smallGridSize * 0.1f;
-            boolean isBiphasic = isBiphasicTWave();  // 双向
-            boolean isLowVoltage = false;  // 低平 (<1/10R)
+            // [修复] 异常T波检测 - 改进倒置检测逻辑
+            boolean isBiphasic = isBiphasicTWave();
+            boolean isLowVoltage = false;
             float trRatio = 0;
             
             if (rWaveAmp > 0) {
-                trRatio = tWaveAmp / rWaveAmp;
+                // 对于倒置T波，使用最大绝对振幅计算T/R比值
+                float maxAbsAmp = Math.max(positiveAmp, negativeAmp);
+                trRatio = maxAbsAmp / rWaveAmp;
                 detailedAnalysis.add("T/R比值: " + String.format("%.2f", trRatio));
-                isLowVoltage = trRatio < T_MIN_RATIO;  // < 1/10R
+                isLowVoltage = trRatio < T_MIN_RATIO;
             }
             
-            detailedAnalysis.add("T波正向峰: " + String.format("%.3f", tWaveAmp) + "mV, 负向峰: " + String.format("%.3f", tMinAmp) + "mV");
+            // 判断是否以负向成分为主（倒置）
+            boolean isInverted = negativeAmp > positiveAmp && negativeAmp > 0.05f;
+            // 纯倒置：几乎没有正向成分
+            boolean isPureInverted = positiveAmp < 0.05f && negativeAmp > 0.1f;
             
-            // 异常T波综合判断 - 改进逻辑
+            // 异常T波综合判断
             if (isBiphasic) {
                 stageErrors.add("【T波】T波双向: 正负双向波形");
-            } else if (!hasPositiveComponent && hasNegativeComponent) {
-                // 纯倒置T波：没有正向成分，只有负向成分
-                stageErrors.add("【T波】T波倒置: 深度" + String.format("%.3f", tMinAmp) + "mV (纯负向波形)");
-            } else if (hasPositiveComponent && hasNegativeComponent && tMinAmp > tWaveAmp * 0.5f) {
-                // 有正向成分，但负向成分也很大（深度倒置）
-                stageErrors.add("【T波】T波倒置: 负向" + String.format("%.3f", tMinAmp) + "mV > 正向" + String.format("%.3f", tWaveAmp) + "mV");
-            } else if (isLowVoltage && tWaveAmp > 0.02f) {
-                // 低平但不是完全消失
+            } else if (isPureInverted) {
+                // 纯倒置T波
+                stageErrors.add("【T波】T波倒置: 深度" + String.format("%.3f", negativeAmp) + "mV (纯负向波形，无正向成分)");
+            } else if (isInverted) {
+                // 以负向为主但有小正向成分
+                stageErrors.add("【T波】T波倒置: 负向" + String.format("%.3f", negativeAmp) + "mV > 正向" + String.format("%.3f", positiveAmp) + "mV");
+            } else if (isLowVoltage && positiveAmp > 0.02f) {
+                // 低平
                 stageErrors.add("【T波】T波低平: T/R=" + String.format("%.2f", trRatio) + " (应≥0.1,即≥1/10R)");
             }
             
-            // T波振幅上限检测
-            if (tWaveAmp > T_MAX_AMP) {
-                stageErrors.add("【T波】T波振幅过高: " + String.format("%.3f", tWaveAmp) + "mV (应<0.5mV)");
+            // T波振幅上限检测（仅针对正向T波）
+            if (positiveAmp > T_MAX_AMP && !isInverted) {
+                stageErrors.add("【T波】T波振幅过高: " + String.format("%.3f", positiveAmp) + "mV (应<0.5mV)");
             }
         }
 

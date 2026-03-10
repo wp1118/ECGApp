@@ -5,12 +5,12 @@
     android:orientation="vertical"
     android:background="#FFFFFF">
 
-    <!-- 标题栏 - 高度再缩小一半 -->
+    <!-- [修复8] 标题栏高度从16dp调整为32dp，按钮从14dp调整为28dp，提升可用性 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="16dp"
+        android:layout_height="32dp"
         android:background="#FF1493"
-        android:padding="1dp"
+        android:padding="2dp"
         android:orientation="horizontal">
 
         <TextView
@@ -19,26 +19,26 @@
             android:layout_weight="1"
             android:text="ECG"
             android:textColor="#FFFFFF"
-            android:textSize="8sp"
+            android:textSize="12sp"
             android:textStyle="bold"
             android:layout_gravity="center_vertical" />
 
         <Button
             android:id="@+id/btnGuide"
-            android:layout_width="30dp"
-            android:layout_height="14dp"
+            android:layout_width="52dp"
+            android:layout_height="28dp"
             android:text="说明"
-            android:textSize="5sp"
+            android:textSize="9sp"
             android:padding="0dp" />
 
         <Button
             android:id="@+id/btnContact"
-            android:layout_width="30dp"
-            android:layout_height="14dp"
+            android:layout_width="52dp"
+            android:layout_height="28dp"
             android:text="联系"
-            android:textSize="5sp"
+            android:textSize="9sp"
             android:padding="0dp"
-            android:layout_marginStart="2dp" />
+            android:layout_marginStart="4dp" />
     </LinearLayout>
 
     <!-- 状态信息 -->
@@ -56,7 +56,7 @@
             android:layout_weight="1"
             android:text="当前：P波"
             android:textColor="#FF1493"
-            android:textSize="8sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -69,20 +69,20 @@
         android:background="#FFFFFF"
         android:orientation="vertical" />
 
-    <!-- 底部按钮栏 -->
+    <!-- [修复8] 底部按钮栏高度从24dp调整为36dp，按钮从20dp调整为30dp，提升可点击性 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="24dp"
+        android:layout_height="36dp"
         android:orientation="horizontal"
-        android:padding="1dp"
+        android:padding="2dp"
         android:gravity="center_vertical">
 
         <Button
             android:id="@+id/btnReset"
-            android:layout_width="30dp"
-            android:layout_height="20dp"
+            android:layout_width="52dp"
+            android:layout_height="30dp"
             android:text="重绘"
-            android:textSize="6sp"
+            android:textSize="9sp"
             android:padding="0dp" />
 
         <TextView
@@ -91,26 +91,26 @@
             android:layout_height="wrap_content"
             android:text="©2025 woP"
             android:textColor="#666666"
-            android:textSize="6sp"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp" />
+            android:textSize="8sp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp" />
 
         <Button
             android:id="@+id/btnEvaluate"
-            android:layout_width="30dp"
-            android:layout_height="20dp"
+            android:layout_width="52dp"
+            android:layout_height="30dp"
             android:text="评价"
-            android:textSize="6sp"
+            android:textSize="9sp"
             android:padding="0dp" />
 
         <Button
             android:id="@+id/btnScreenshot"
-            android:layout_width="30dp"
-            android:layout_height="20dp"
+            android:layout_width="52dp"
+            android:layout_height="30dp"
             android:text="截图"
-            android:textSize="6sp"
+            android:textSize="9sp"
             android:padding="0dp"
-            android:layout_marginStart="2dp" />
+            android:layout_marginStart="4dp" />
 
     </LinearLayout>
 

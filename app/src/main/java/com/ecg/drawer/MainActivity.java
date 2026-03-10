@@ -1,10 +1,14 @@
 package com.ecg.drawer;
 
 import android.app.AlertDialog;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.graphics.*;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
@@ -12,7 +16,9 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -127,6 +133,10 @@ public class MainActivity extends AppCompatActivity {
         private Paint textPaint;
         private Paint startPointPaint;
         private Paint markerPaint;
+        // [修复4/5] 将 bigGridPaint 和 markerTextPaint 从 onDraw 内部移至成员变量，
+        // 避免每帧绘制时重复创建 Paint 对象，减少 GC 压力
+        private Paint bigGridPaint;
+        private Paint markerTextPaint;
         
         private float smallGridSize = 60f;
         private float bigGridSize = smallGridSize * 5;
@@ -180,6 +190,8 @@ public class MainActivity extends AppCompatActivity {
         
         private boolean pWaveStarted = false;
         private boolean pWaveHasGoneUp = false;
+        // [修复2] 标记P波是否已通过自动检测完成分析，避免 ACTION_UP 时重复分析
+        private boolean pWaveAnalyzedByAutoDetect = false;
         
         private List<String> stageErrors;
         private List<String> detailedAnalysis;
@@ -218,6 +230,17 @@ public class MainActivity extends AppCompatActivity {
             markerPaint.setColor(Color.BLUE);
             markerPaint.setStrokeWidth(4);
             markerPaint.setStyle(Paint.Style.STROKE);
+
+            // [修复4] 在 init() 中初始化 bigGridPaint，避免在 onDraw 中重复创建
+            bigGridPaint = new Paint();
+            bigGridPaint.setColor(Color.parseColor("#FF1493"));
+            bigGridPaint.setStrokeWidth(2);
+
+            // [修复5] 在 init() 中初始化 markerTextPaint，避免在 onDraw 中重复创建
+            markerTextPaint = new Paint();
+            markerTextPaint.setColor(Color.GREEN);
+            markerTextPaint.setTextSize(16);
+            markerTextPaint.setTextAlign(Paint.Align.CENTER);
             
             drawnPath = new Path();
             currentPathPoints = new ArrayList<>();
@@ -256,10 +279,7 @@ public class MainActivity extends AppCompatActivity {
                 canvas.drawLine(0, y, width, y, gridPaint);
             }
             
-            Paint bigGridPaint = new Paint();
-            bigGridPaint.setColor(Color.parseColor("#FF1493"));
-            bigGridPaint.setStrokeWidth(2);
-            
+            // [修复4] 直接使用成员变量 bigGridPaint，不在此处创建新对象
             for (int x = 0; x < width; x += (int)bigGridSize) {
                 canvas.drawLine(x, 0, x, height, bigGridPaint);
             }
@@ -276,10 +296,7 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawLine(markerX - markerSize/2, markerY, markerX + markerSize/2, markerY, startPointPaint);
             canvas.drawLine(markerX, markerY - markerSize/2, markerX, markerY + markerSize/2, startPointPaint);
             
-            Paint markerTextPaint = new Paint();
-            markerTextPaint.setColor(Color.GREEN);
-            markerTextPaint.setTextSize(16);
-            markerTextPaint.setTextAlign(Paint.Align.CENTER);
+            // [修复5] 直接使用成员变量 markerTextPaint，不在此处创建新对象
             canvas.drawText("P起点", markerX, markerY + markerSize + 25, markerTextPaint);
         }
 
@@ -336,6 +353,8 @@ public class MainActivity extends AppCompatActivity {
                     currentPathPoints.clear();
                     pWaveStarted = false;
                     pWaveHasGoneUp = false;
+                    // [修复2] 每次按下时重置自动检测标志
+                    pWaveAnalyzedByAutoDetect = false;
                     
                     if (currentStage == 0) {
                         drawnPath.reset();
@@ -369,20 +388,22 @@ public class MainActivity extends AppCompatActivity {
                     endPoint = new PointF(x, y);
                     currentPathPoints.add(new PointF(x, y));
                     allPathPoints.add(new PointF(x, y));
-                    
-                    // 执行高级波形分析
-                    analyzeWaveformAdvanced();
-                    stageCompleted[currentStage] = true;
-                    
-                    lastX = x;
-                    lastY = y;
-                    currentStage++;
-                    
-                    if (currentStage >= stageNames.length) {
-                        showFinalResult();
-                    } else {
-                        updateStage(stageNames[currentStage]);
-                        invalidate();
+
+                    // [修复2] P波若已通过自动检测完成分析则跳过，避免重复分析
+                    if (!pWaveAnalyzedByAutoDetect) {
+                        analyzeWaveformAdvanced();
+                        stageCompleted[currentStage] = true;
+
+                        lastX = x;
+                        lastY = y;
+                        currentStage++;
+
+                        if (currentStage >= stageNames.length) {
+                            showFinalResult();
+                        } else {
+                            updateStage(stageNames[currentStage]);
+                            invalidate();
+                        }
                     }
                     return true;
             }
@@ -406,10 +427,12 @@ public class MainActivity extends AppCompatActivity {
                     pWaveEnd = new PointF(x, baselineY);
                     endPoint = pWaveEnd;
                     currentPathPoints.add(pWaveEnd);
-                    
+
+                    // [修复2] 在自动检测中完成分析，并标记避免 ACTION_UP 时重复执行
                     analyzeWaveformAdvanced();
                     stageCompleted[0] = true;
-                    
+                    pWaveAnalyzedByAutoDetect = true;
+
                     lastX = x;
                     lastY = baselineY;
                     currentStage++;
@@ -482,8 +505,8 @@ public class MainActivity extends AppCompatActivity {
                 stageErrors.add("P波形态异常: 振幅过小(应向上)");
             }
             
-            // 检测负向成分
-            if (minHeight > smallGridSize * 0.2f) {
+            // 检测负向成分（minHeight 为负值表示向下，取绝对值与阈值比较）
+            if (minHeight < -smallGridSize * 0.2f) {
                 stageErrors.add("P波形态异常: 存在明显负向波");
             }
             
@@ -649,11 +672,16 @@ public class MainActivity extends AppCompatActivity {
             // 在J点后40ms(1小格)处测量ST段
             float jPlus40msX = jPoint.x + smallGridSize;
             float stLevelAtJ40 = interpolateYAtX(jPlus40msX);
+            // [修复3] 修正ST段偏差计算方向：
+            // 在屏幕坐标系中，Y轴向下为正，基线以下（压低）时 stLevelAtJ40 > baselineY，
+            // 故压低量 = (stLevelAtJ40 - baselineY) / smallGridSize * mvPerSmallGrid 为正值，
+            // 原代码逻辑与 ST_DEPRESSION_THRESHOLD(正值) 比较方向正确，
+            // 但将其命名为 stDeviation 时应明确：正值=压低，负值=抬高
             float stDeviation = (stLevelAtJ40 - baselineY) / smallGridSize * mvPerSmallGrid;
             
             detailedAnalysis.add("J点后40ms ST段: " + String.format("%.3f", stDeviation) + "mV");
             
-            // 敏感检测0.05mV以上的压低
+            // [修复3] 敏感检测0.05mV以上的压低（stDeviation > 0 表示压低）
             if (stDeviation > ST_DEPRESSION_THRESHOLD) {
                 // ST段压低 - 进一步分类形态
                 String morphology = classifySTMorphology();
@@ -663,6 +691,10 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     stageErrors.add("ST段轻度压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
                 }
+            }
+            // 检测ST段抬高（stDeviation < 0 表示抬高）
+            if (stDeviation < -ST_DEPRESSION_THRESHOLD) {
+                stageErrors.add("ST段抬高: " + String.format("%.3f", Math.abs(stDeviation)) + "mV");
             }
             
             // 检测ST段是否回到基线
@@ -770,7 +802,6 @@ public class MainActivity extends AppCompatActivity {
             if (currentPathPoints.size() < 10) return false;
             
             int peakCount = 0;
-            boolean wasRising = false;
             
             for (int i = 1; i < currentPathPoints.size() - 1; i++) {
                 float prev = baselineY - currentPathPoints.get(i-1).y;
@@ -802,14 +833,17 @@ public class MainActivity extends AppCompatActivity {
         public void showCurrentEvaluation() {
             StringBuilder sb = new StringBuilder();
             
-            // 汇总各阶段分析结果
+            // [修复1] 修正阶段错误匹配逻辑：使用各阶段完整名称前缀正确匹配，
+            // 原代码 stageNames[i].split("")[0] 返回空字符串 ""，导致所有判断均为 true。
+            // 改为直接用 stageNames[i] 中的有效前缀关键词来匹配错误信息。
+            String[] stageKeywords = {"P波", "PR", "QRS", "ST", "T波"};
             for (int i = 0; i < stageNames.length; i++) {
                 if (stageCompleted[i]) {
-                    sb.append("【" + stageNames[i] + "】");
+                    sb.append("【").append(stageNames[i]).append("】");
                     boolean hasError = false;
                     for (String err : stageErrors) {
-                        if (err.startsWith(stageNames[i].split("")[0])) {
-                            sb.append(" ✗\n  " + err + "\n");
+                        if (err.startsWith(stageKeywords[i])) {
+                            sb.append(" ✗\n  ").append(err).append("\n");
                             hasError = true;
                         }
                     }
@@ -823,7 +857,7 @@ public class MainActivity extends AppCompatActivity {
             // 添加详细分析数据
             sb.append("【详细测量数据】\n");
             for (String detail : detailedAnalysis) {
-                sb.append(detail + "\n");
+                sb.append(detail).append("\n");
             }
             
             post(() -> MainActivity.this.showEvaluationResult(stageErrors.isEmpty(), sb.toString()));
@@ -837,14 +871,14 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 sb.append("发现以下异常：\n\n");
                 for (int i = 0; i < stageErrors.size(); i++) {
-                    sb.append((i+1) + ". " + stageErrors.get(i) + "\n");
+                    sb.append((i+1)).append(". ").append(stageErrors.get(i)).append("\n");
                 }
                 sb.append("\n");
             }
             
             sb.append("【完整测量报告】\n");
             for (String detail : detailedAnalysis) {
-                sb.append(detail + "\n");
+                sb.append(detail).append("\n");
             }
             
             post(() -> MainActivity.this.showEvaluationResult(stageErrors.isEmpty(), sb.toString()));
@@ -880,13 +914,55 @@ public class MainActivity extends AppCompatActivity {
             qtInterval = 0;
             pWaveStarted = false;
             pWaveHasGoneUp = false;
+            pWaveAnalyzedByAutoDetect = false;
             updateStage(stageNames[0]);
             invalidate();
         }
         
-        // 截图并保存到相册
+        // [修复6] 实现截图并保存到相册功能（兼容 Android 9 及以上）
         public void takeScreenshot() {
-            post(() -> android.widget.Toast.makeText(getContext(), "截图已保存", android.widget.Toast.LENGTH_SHORT).show());
+            Bitmap bitmap = Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            draw(canvas);
+
+            try {
+                OutputStream outputStream;
+                String fileName = "ECG_" + System.currentTimeMillis() + ".png";
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Android 10+ 使用 MediaStore，无需存储权限
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                    values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH,
+                            Environment.DIRECTORY_PICTURES + "/ECGApp");
+                    android.net.Uri uri = getContext().getContentResolver()
+                            .insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new Exception("无法创建媒体文件");
+                    outputStream = getContext().getContentResolver().openOutputStream(uri);
+                } else {
+                    // Android 9 及以下使用传统文件路径
+                    java.io.File dir = new java.io.File(
+                            Environment.getExternalStoragePublicDirectory(
+                                    Environment.DIRECTORY_PICTURES), "ECGApp");
+                    if (!dir.exists()) dir.mkdirs();
+                    java.io.File file = new java.io.File(dir, fileName);
+                    outputStream = new java.io.FileOutputStream(file);
+                }
+
+                if (outputStream != null) {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream);
+                    outputStream.flush();
+                    outputStream.close();
+                    post(() -> Toast.makeText(getContext(),
+                            "截图已保存至相册/ECGApp", Toast.LENGTH_SHORT).show());
+                }
+            } catch (Exception e) {
+                post(() -> Toast.makeText(getContext(),
+                        "截图保存失败: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            } finally {
+                bitmap.recycle();
+            }
         }
     }
 }

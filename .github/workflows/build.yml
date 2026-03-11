@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - uses: actions/checkout@v4
@@ -45,3 +47,33 @@ jobs:
         name: ECGApp-APK
         path: app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
+
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ github.run_number }}
+        name: ECGApp Release v${{ github.run_number }}
+        body: |
+          ## ECGApp 自动构建版本
+          
+          **构建时间**: ${{ github.event.head_commit.timestamp }}
+          **提交信息**: ${{ github.event.head_commit.message }}
+          
+          ### 应用信息
+          - 应用名称：心电图绘制 - woP
+          - 包名：com.ecg.drawer
+          - 最低Android版本：Android 5.0 (API 21)
+          
+          ### 主要功能
+          - 学习和练习绘制标准心电图波形
+          - 分阶段绘制：P波 → PR间期 → QRS波群 → ST段 → T波
+          - 实时检测波形是否符合医学标准
+          - 支持振幅限制检测
+          
+          ### 下载
+          下载下方附件 `ECGApp-ECG绘制.apk` 安装到Android设备。
+        files: |
+          app/build/outputs/apk/debug/app-debug.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

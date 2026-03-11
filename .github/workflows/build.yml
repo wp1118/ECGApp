@@ -72,7 +72,7 @@ jobs:
           - 支持振幅限制检测
           
           ### 下载
-          下载下方附件 `ECGApp-ECG绘制.apk` 安装到Android设备。
+          下载下方附件安装到Android设备。
         files: |
           app/build/outputs/apk/debug/app-debug.apk
       env:

@@ -492,22 +492,22 @@ public class MainActivity extends AppCompatActivity {
             
             // 精确时间检测
             if (pTime > P_MAX_TIME) {
-                stageErrors.add("P波时限超标: " + String.format("%.3f", pTime) + "s (应<0.12s)");
+                stageErrors.add("【P波】时限超标: " + String.format("%.3f", pTime) + "s (应<0.12s)");
             }
             
             // 精确振幅检测
             if (pWaveAmp > P_MAX_AMP) {
-                stageErrors.add("P波振幅超标: " + String.format("%.3f", pWaveAmp) + "mV (应<0.25mV)");
+                stageErrors.add("【P波】振幅超标: " + String.format("%.3f", pWaveAmp) + "mV (应<0.25mV)");
             }
             
             // 形态检测 - 必须向上圆钝
             if (maxHeight < smallGridSize * 0.3f) {
-                stageErrors.add("P波形态异常: 振幅过小(应向上)");
+                stageErrors.add("【P波】形态异常: 振幅过小(应向上)");
             }
             
             // 检测负向成分（minHeight 为负值表示向下，取绝对值与阈值比较）
             if (minHeight < -smallGridSize * 0.2f) {
-                stageErrors.add("P波形态异常: 存在明显负向波");
+                stageErrors.add("【P波】形态异常: 存在明显负向波");
             }
             
             // 记录P波终点用于PR间期计算
@@ -523,9 +523,9 @@ public class MainActivity extends AppCompatActivity {
             
             // 精确时间范围检测
             if (prInterval < PR_MIN_TIME) {
-                stageErrors.add("PR间期过短: " + String.format("%.3f", prInterval) + "s (应≥0.12s)");
+                stageErrors.add("【PR】间期过短: " + String.format("%.3f", prInterval) + "s (应≥0.12s)");
             } else if (prInterval > PR_MAX_TIME) {
-                stageErrors.add("PR间期过长: " + String.format("%.3f", prInterval) + "s (应≤0.20s)");
+                stageErrors.add("【PR】间期过长: " + String.format("%.3f", prInterval) + "s (应≤0.20s)");
             }
             
             // 水平度检测 - 计算路径偏离基线的程度
@@ -541,9 +541,9 @@ public class MainActivity extends AppCompatActivity {
             detailedAnalysis.add("PR段平均偏离: " + String.format("%.2f", avgDeviation/smallGridSize) + "格");
             
             if (maxDeviation > smallGridSize * 0.8f) {
-                stageErrors.add("PR段不水平: 最大偏离" + String.format("%.1f", maxDeviation/smallGridSize) + "格");
+                stageErrors.add("【PR】段不水平: 最大偏离" + String.format("%.1f", maxDeviation/smallGridSize) + "格");
             } else if (avgDeviation > smallGridSize * 0.3f) {
-                stageErrors.add("PR段略偏斜: 平均偏离" + String.format("%.1f", avgDeviation/smallGridSize) + "格");
+                stageErrors.add("【PR】段略偏斜: 平均偏离" + String.format("%.1f", avgDeviation/smallGridSize) + "格");
             }
         }
 
@@ -563,12 +563,12 @@ public class MainActivity extends AppCompatActivity {
             
             // 时限检测
             if (qrsDuration > QRS_MAX_TIME) {
-                stageErrors.add("QRS时限超标: " + String.format("%.3f", qrsDuration) + "s (应<0.12s)");
+                stageErrors.add("【QRS】时限超标: " + String.format("%.3f", qrsDuration) + "s (应<0.12s)");
             }
             
             // R波振幅
             if (rWaveAmp < R_MIN_AMP) {
-                stageErrors.add("R波振幅不足: " + String.format("%.3f", rWaveAmp) + "mV (应≥0.5mV)");
+                stageErrors.add("【QRS】R波振幅不足: " + String.format("%.3f", rWaveAmp) + "mV (应≥0.5mV)");
             }
             
             // Q波分析 - [修复] 异常Q波：>1/4R 且 >0.04s
@@ -706,20 +706,20 @@ public class MainActivity extends AppCompatActivity {
                 String morphology = classifySTMorphology();
                 
                 if (stDeviation > 0.1f) {
-                    stageErrors.add("ST段明显压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
+                    stageErrors.add("【ST】段明显压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
                 } else {
-                    stageErrors.add("ST段轻度压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
+                    stageErrors.add("【ST】段轻度压低: " + String.format("%.3f", stDeviation) + "mV, " + morphology);
                 }
             }
             // 检测ST段抬高（stDeviation < 0 表示抬高）
             if (stDeviation < -ST_DEPRESSION_THRESHOLD) {
-                stageErrors.add("ST段抬高: " + String.format("%.3f", Math.abs(stDeviation)) + "mV");
+                stageErrors.add("【ST】段抬高: " + String.format("%.3f", Math.abs(stDeviation)) + "mV");
             }
             
             // 检测ST段是否回到基线
             float endDeviation = (endPoint.y - baselineY) / smallGridSize * mvPerSmallGrid;
             if (Math.abs(endDeviation) > 0.5f) {
-                stageErrors.add("ST段终点未回基线: 偏离" + String.format("%.2f", endDeviation) + "mV");
+                stageErrors.add("【ST】段终点未回基线: 偏离" + String.format("%.2f", endDeviation) + "mV");
             }
         }
 
